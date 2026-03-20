@@ -186,6 +186,19 @@ app.post('/api/users/:id/reset-password', authenticateToken, (req: any, res) => 
   res.json({ success: true });
 });
 
+app.delete('/api/users/:id', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  
+  const adminCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'").get() as any;
+  const targetUser = db.prepare("SELECT role FROM users WHERE id = ?").get(req.params.id) as any;
+  if (targetUser && targetUser.role === 'admin' && adminCount.count <= 1) {
+    return res.status(400).json({ error: 'Não é possível excluir o último administrador' });
+  }
+  
+  db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
 // Members
 app.get('/api/members', authenticateToken, (req, res) => {
   const members = db.prepare('SELECT * FROM members').all();
@@ -223,6 +236,21 @@ app.post('/api/members/:id/roles', authenticateToken, (req, res) => {
   res.json({ success: true });
 });
 
+app.delete('/api/members/:id', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  const id = req.params.id;
+  db.transaction(() => {
+    db.prepare('DELETE FROM power_history WHERE member_id = ?').run(id);
+    db.prepare('DELETE FROM guerra_total WHERE member_id = ?').run(id);
+    db.prepare('DELETE FROM torneio_celeste WHERE member_id = ?').run(id);
+    db.prepare('DELETE FROM pico_gloria WHERE member_id = ?').run(id);
+    db.prepare('DELETE FROM fenda_history WHERE member_id = ?').run(id);
+    db.prepare('DELETE FROM member_roles WHERE member_id = ?').run(id);
+    db.prepare('DELETE FROM members WHERE id = ?').run(id);
+  })();
+  res.json({ success: true });
+});
+
 // Power History
 app.get('/api/power', authenticateToken, (req, res) => {
   const history = db.prepare(`
@@ -232,6 +260,18 @@ app.get('/api/power', authenticateToken, (req, res) => {
     ORDER BY p.date DESC
   `).all();
   res.json(history);
+});
+
+app.delete('/api/power/:id', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  db.prepare('DELETE FROM power_history WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+app.delete('/api/power/date/:date', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  db.prepare('DELETE FROM power_history WHERE date = ?').run(req.params.date);
+  res.json({ success: true });
 });
 
 // Tournaments
@@ -248,6 +288,22 @@ app.get('/api/tournaments/torneio_celeste', authenticateToken, (req, res) => {
 app.get('/api/tournaments/pico_gloria', authenticateToken, (req, res) => {
   const data = db.prepare('SELECT t.*, m.nick FROM pico_gloria t JOIN members m ON t.member_id = m.id ORDER BY t.date DESC').all();
   res.json(data);
+});
+
+app.delete('/api/tournaments/:type/:id', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  const type = req.params.type;
+  if (!['guerra_total', 'torneio_celeste', 'pico_gloria'].includes(type)) return res.status(400).json({ error: 'Tipo inválido' });
+  db.prepare(`DELETE FROM ${type} WHERE id = ?`).run(req.params.id);
+  res.json({ success: true });
+});
+
+app.delete('/api/tournaments/:type/date/:date', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  const type = req.params.type;
+  if (!['guerra_total', 'torneio_celeste', 'pico_gloria'].includes(type)) return res.status(400).json({ error: 'Tipo inválido' });
+  db.prepare(`DELETE FROM ${type} WHERE date = ?`).run(req.params.date);
+  res.json({ success: true });
 });
 
 // Fenda
@@ -272,6 +328,18 @@ app.post('/api/fenda/close', authenticateToken, (req, res) => {
     const newSeason = parseInt(seasonRow?.value || '1', 10) + 1;
     db.prepare("UPDATE settings SET value = ? WHERE key = 'fenda_season'").run(newSeason.toString());
   })();
+  res.json({ success: true });
+});
+
+app.delete('/api/fenda/:id', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  db.prepare('DELETE FROM fenda_history WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+app.delete('/api/fenda/date/:date', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  db.prepare('DELETE FROM fenda_history WHERE date = ?').run(req.params.date);
   res.json({ success: true });
 });
 

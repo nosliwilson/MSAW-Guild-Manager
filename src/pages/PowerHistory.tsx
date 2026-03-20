@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Upload, Download, Info } from 'lucide-react';
+import { Upload, Download, Info, Trash2 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
@@ -35,6 +35,16 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
     } finally {
       setUploading(false);
       e.target.value = '';
+    }
+  };
+
+  const handleDeleteByDate = async (date: string) => {
+    if (!confirm(`Tem certeza que deseja excluir TODOS os registros de poder da data ${date}? Esta ação não pode ser desfeita e serve como rollback de importação.`)) return;
+    try {
+      await fetchApi(`/api/power/date/${date}`, { method: 'DELETE' });
+      loadHistory();
+    } catch (e: any) {
+      alert(e.message);
     }
   };
 
@@ -155,6 +165,7 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
               <th className="px-6 py-4 font-medium">Data</th>
               <th className="px-6 py-4 font-medium">Nick</th>
               <th className="px-6 py-4 font-medium">Poder</th>
+              <th className="px-6 py-4 font-medium">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800">
@@ -163,6 +174,15 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
                 <td className="px-6 py-4">{h.date}</td>
                 <td className="px-6 py-4 font-medium text-white">{h.nick}</td>
                 <td className="px-6 py-4 text-emerald-400">{formatPower(Number(h.power))}</td>
+                <td className="px-6 py-4">
+                  <button
+                    onClick={() => handleDeleteByDate(h.date)}
+                    className="text-zinc-400 hover:text-red-400 flex items-center gap-1"
+                    title="Excluir todos os registros desta data (Rollback)"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>

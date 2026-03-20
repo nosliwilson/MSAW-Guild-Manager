@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Upload, Gem, Info, AlertTriangle } from 'lucide-react';
+import { Upload, Gem, Info, AlertTriangle, Trash2 } from 'lucide-react';
 
 export default function Fenda({ fetchApi }: { fetchApi: any }) {
   const [data, setData] = useState<any[]>([]);
@@ -47,6 +47,16 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
       loadData();
     } catch (err: any) {
       alert(err.message);
+    }
+  };
+
+  const handleDeleteByDate = async (date: string) => {
+    if (!confirm(`Tem certeza que deseja excluir TODOS os registros da fenda na data ${date}? Esta ação não pode ser desfeita e serve como rollback de importação.`)) return;
+    try {
+      await fetchApi(`/api/fenda/date/${date}`, { method: 'DELETE' });
+      loadData();
+    } catch (e: any) {
+      alert(e.message);
     }
   };
 
@@ -110,6 +120,7 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
               <th className="px-6 py-4 font-medium">Nick</th>
               <th className="px-6 py-4 font-medium">Cristais Extraídos</th>
               <th className="px-6 py-4 font-medium">Data do Registro</th>
+              <th className="px-6 py-4 font-medium">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800">
@@ -119,11 +130,20 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
                 <td className="px-6 py-4 font-medium text-white">{item.nick}</td>
                 <td className="px-6 py-4 text-emerald-400 font-medium">{formatNumber(Number(item.crystals))}</td>
                 <td className="px-6 py-4">{item.date}</td>
+                <td className="px-6 py-4">
+                  <button
+                    onClick={() => handleDeleteByDate(item.date)}
+                    className="text-zinc-400 hover:text-red-400 flex items-center gap-1"
+                    title="Excluir todos os registros desta data (Rollback)"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </td>
               </tr>
             ))}
             {data.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-6 py-8 text-center text-zinc-500">
+                <td colSpan={5} className="px-6 py-8 text-center text-zinc-500">
                   Nenhum dado registrado para a fenda atual.
                 </td>
               </tr>

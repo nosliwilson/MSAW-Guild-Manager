@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings, ShieldAlert, UserX, UserCheck, KeyRound } from 'lucide-react';
+import { Settings, ShieldAlert, UserX, UserCheck, KeyRound, Trash2 } from 'lucide-react';
 
 export default function UsersAdmin({ fetchApi, user }: { fetchApi: any, user: any }) {
   const [users, setUsers] = useState<any[]>([]);
@@ -78,6 +78,16 @@ export default function UsersAdmin({ fetchApi, user }: { fetchApi: any, user: an
       setResetId(null);
       setResetPassword('');
       alert('Senha redefinida com sucesso!');
+    } catch (e: any) {
+      alert(e.message);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Tem certeza que deseja excluir este usuário? Esta ação não pode ser desfeita.')) return;
+    try {
+      await fetchApi(`/api/users/${id}`, { method: 'DELETE' });
+      loadUsers();
     } catch (e: any) {
       alert(e.message);
     }
@@ -178,6 +188,15 @@ export default function UsersAdmin({ fetchApi, user }: { fetchApi: any, user: an
                   >
                     <KeyRound className="w-4 h-4 text-blue-400" />
                   </button>
+                  {u.id !== user.id && (
+                    <button
+                      onClick={() => handleDelete(u.id)}
+                      className="text-zinc-400 hover:text-red-400 flex items-center gap-1"
+                      title="Excluir Usuário"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

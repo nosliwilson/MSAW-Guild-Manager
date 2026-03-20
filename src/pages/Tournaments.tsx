@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Upload, Swords, Info } from 'lucide-react';
+import { Upload, Swords, Info, Trash2 } from 'lucide-react';
 
 export default function Tournaments({ fetchApi }: { fetchApi: any }) {
   const [activeTab, setActiveTab] = useState('guerra_total');
@@ -34,6 +34,16 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
     } finally {
       setUploading(false);
       e.target.value = '';
+    }
+  };
+
+  const handleDeleteByDate = async (date: string) => {
+    if (!confirm(`Tem certeza que deseja excluir TODOS os registros deste torneio na data ${date}? Esta ação não pode ser desfeita e serve como rollback de importação.`)) return;
+    try {
+      await fetchApi(`/api/tournaments/${activeTab}/date/${date}`, { method: 'DELETE' });
+      loadData(activeTab);
+    } catch (e: any) {
+      alert(e.message);
     }
   };
 
@@ -142,6 +152,7 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
                   <th className="px-6 py-4 font-medium">Pontuação</th>
                 </>
               )}
+              <th className="px-6 py-4 font-medium">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800">
@@ -168,11 +179,20 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
                     <td className="px-6 py-4 text-emerald-400">{item.score.toLocaleString()}</td>
                   </>
                 )}
+                <td className="px-6 py-4">
+                  <button
+                    onClick={() => handleDeleteByDate(item.date)}
+                    className="text-zinc-400 hover:text-red-400 flex items-center gap-1"
+                    title="Excluir todos os registros desta data (Rollback)"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </td>
               </tr>
             ))}
             {data.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-6 py-8 text-center text-zinc-500">
+                <td colSpan={7} className="px-6 py-8 text-center text-zinc-500">
                   Nenhum dado registrado para este torneio.
                 </td>
               </tr>

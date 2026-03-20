@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit2, ShieldAlert, Upload, Info } from 'lucide-react';
+import { Plus, Edit2, ShieldAlert, Upload, Info, Trash2 } from 'lucide-react';
 
 export default function Members({ fetchApi }: { fetchApi: any }) {
   const [members, setMembers] = useState<any[]>([]);
@@ -81,6 +81,16 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
       body: JSON.stringify({ role: newRole, start_date: newRoleDate })
     });
     loadRoles(selectedMember);
+  };
+
+  const handleDeleteMember = async (id: number) => {
+    if (!confirm('Tem certeza que deseja excluir este membro? Todo o histórico de poder, torneios e fenda será apagado. Esta ação não pode ser desfeita.')) return;
+    try {
+      await fetchApi(`/api/members/${id}`, { method: 'DELETE' });
+      loadMembers();
+    } catch (e: any) {
+      alert(e.message);
+    }
   };
 
   return (
@@ -177,13 +187,20 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
                 </td>
                 <td className="px-6 py-4">{m.entry_date}</td>
                 <td className="px-6 py-4">{m.exit_date || '-'}</td>
-                <td className="px-6 py-4">
+                <td className="px-6 py-4 flex gap-3">
                   <button
                     onClick={() => loadRoles(m)}
                     className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
+                    title="Cargos"
                   >
                     <ShieldAlert className="w-4 h-4" />
-                    Cargos
+                  </button>
+                  <button
+                    onClick={() => handleDeleteMember(m.id)}
+                    className="text-zinc-400 hover:text-red-400 flex items-center gap-1"
+                    title="Excluir Membro"
+                  >
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </td>
               </tr>
