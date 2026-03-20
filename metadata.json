@@ -1,0 +1,5 @@
+{
+  "name": "Metal Slug Guild Manager",
+  "description": "Gerenciador de guilda para Metal Slug Awakening com histórico de membros, poder e torneios.",
+  "requestFramePermissions": []
+}
