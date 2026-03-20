@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Upload, Gem, Info, AlertTriangle, Trash2 } from 'lucide-react';
 
 export default function Fenda({ fetchApi }: { fetchApi: any }) {

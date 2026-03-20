@@ -93,7 +93,26 @@ db.exec(`
     season INTEGER NOT NULL,
     FOREIGN KEY (member_id) REFERENCES members(id)
   );
+
+  CREATE TABLE IF NOT EXISTS imports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    type TEXT NOT NULL,
+    date TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
 `);
+
+// Add import_id to tables safely
+const tablesToAlter = ['power_history', 'guerra_total', 'torneio_celeste', 'pico_gloria', 'fenda_history'];
+for (const table of tablesToAlter) {
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN import_id INTEGER REFERENCES imports(id)`);
+  } catch (e: any) {
+    // Ignore if column already exists
+  }
+}
 
 // Create default admin if not exists
 const adminExists = db.prepare('SELECT * FROM users WHERE username = ?').get('admin');
@@ -189,14 +208,18 @@ app.post('/api/users/:id/reset-password', authenticateToken, (req: any, res) => 
 app.delete('/api/users/:id', authenticateToken, (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   
-  const adminCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'").get() as any;
-  const targetUser = db.prepare("SELECT role FROM users WHERE id = ?").get(req.params.id) as any;
-  if (targetUser && targetUser.role === 'admin' && adminCount.count <= 1) {
-    return res.status(400).json({ error: 'Não é possível excluir o último administrador' });
+  try {
+    const adminCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'").get() as any;
+    const targetUser = db.prepare("SELECT role FROM users WHERE id = ?").get(req.params.id) as any;
+    if (targetUser && targetUser.role === 'admin' && adminCount.count <= 1) {
+      return res.status(400).json({ error: 'Não é possível excluir o último administrador' });
+    }
+    
+    db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
   }
-  
-  db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
 });
 
 // Members
@@ -239,16 +262,20 @@ app.post('/api/members/:id/roles', authenticateToken, (req, res) => {
 app.delete('/api/members/:id', authenticateToken, (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   const id = req.params.id;
-  db.transaction(() => {
-    db.prepare('DELETE FROM power_history WHERE member_id = ?').run(id);
-    db.prepare('DELETE FROM guerra_total WHERE member_id = ?').run(id);
-    db.prepare('DELETE FROM torneio_celeste WHERE member_id = ?').run(id);
-    db.prepare('DELETE FROM pico_gloria WHERE member_id = ?').run(id);
-    db.prepare('DELETE FROM fenda_history WHERE member_id = ?').run(id);
-    db.prepare('DELETE FROM member_roles WHERE member_id = ?').run(id);
-    db.prepare('DELETE FROM members WHERE id = ?').run(id);
-  })();
-  res.json({ success: true });
+  try {
+    db.transaction(() => {
+      db.prepare('DELETE FROM power_history WHERE member_id = ?').run(id);
+      db.prepare('DELETE FROM guerra_total WHERE member_id = ?').run(id);
+      db.prepare('DELETE FROM torneio_celeste WHERE member_id = ?').run(id);
+      db.prepare('DELETE FROM pico_gloria WHERE member_id = ?').run(id);
+      db.prepare('DELETE FROM fenda_history WHERE member_id = ?').run(id);
+      db.prepare('DELETE FROM member_roles WHERE member_id = ?').run(id);
+      db.prepare('DELETE FROM members WHERE id = ?').run(id);
+    })();
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Power History
@@ -264,14 +291,22 @@ app.get('/api/power', authenticateToken, (req, res) => {
 
 app.delete('/api/power/:id', authenticateToken, (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
-  db.prepare('DELETE FROM power_history WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
+  try {
+    db.prepare('DELETE FROM power_history WHERE id = ?').run(req.params.id);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.delete('/api/power/date/:date', authenticateToken, (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
-  db.prepare('DELETE FROM power_history WHERE date = ?').run(req.params.date);
-  res.json({ success: true });
+  try {
+    db.prepare('DELETE FROM power_history WHERE date = ?').run(req.params.date);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Tournaments
@@ -294,16 +329,24 @@ app.delete('/api/tournaments/:type/:id', authenticateToken, (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   const type = req.params.type;
   if (!['guerra_total', 'torneio_celeste', 'pico_gloria'].includes(type)) return res.status(400).json({ error: 'Tipo inválido' });
-  db.prepare(`DELETE FROM ${type} WHERE id = ?`).run(req.params.id);
-  res.json({ success: true });
+  try {
+    db.prepare(`DELETE FROM ${type} WHERE id = ?`).run(req.params.id);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.delete('/api/tournaments/:type/date/:date', authenticateToken, (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   const type = req.params.type;
   if (!['guerra_total', 'torneio_celeste', 'pico_gloria'].includes(type)) return res.status(400).json({ error: 'Tipo inválido' });
-  db.prepare(`DELETE FROM ${type} WHERE date = ?`).run(req.params.date);
-  res.json({ success: true });
+  try {
+    db.prepare(`DELETE FROM ${type} WHERE date = ?`).run(req.params.date);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Fenda
@@ -333,18 +376,26 @@ app.post('/api/fenda/close', authenticateToken, (req, res) => {
 
 app.delete('/api/fenda/:id', authenticateToken, (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
-  db.prepare('DELETE FROM fenda_history WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
+  try {
+    db.prepare('DELETE FROM fenda_history WHERE id = ?').run(req.params.id);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.delete('/api/fenda/date/:date', authenticateToken, (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
-  db.prepare('DELETE FROM fenda_history WHERE date = ?').run(req.params.date);
-  res.json({ success: true });
+  try {
+    db.prepare('DELETE FROM fenda_history WHERE date = ?').run(req.params.date);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // CSV Uploads
-app.post('/api/upload/:type', authenticateToken, upload.single('file'), (req, res) => {
+app.post('/api/upload/:type', authenticateToken, upload.single('file'), (req: any, res) => {
   if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
   
   const type = req.params.type;
@@ -366,12 +417,16 @@ app.post('/api/upload/:type', authenticateToken, upload.single('file'), (req, re
         
         let importedCount = 0;
         db.transaction(() => {
+          const importDate = new Date().toISOString().split('T')[0];
+          const importResult = db.prepare('INSERT INTO imports (user_id, type, date) VALUES (?, ?, ?)').run(req.user.id, type, importDate);
+          const importId = importResult.lastInsertRowid;
+
           for (const row of results) {
             // Ensure member exists
             const nick = row.Nick || row.nick || row.NICK;
             if (!nick) continue;
             
-            const entryDate = row.Date || row.date || row.Data || row.data || row.DATA || new Date().toISOString().split('T')[0];
+            const entryDate = row.Date || row.date || row.Data || row.data || row.DATA || importDate;
             insertMember.run(nick, entryDate);
             const member = getMember.get(nick) as any;
             if (!member) continue;
@@ -379,28 +434,28 @@ app.post('/api/upload/:type', authenticateToken, upload.single('file'), (req, re
             if (type === 'members') {
               // Just importing members, nothing else to insert
             } else if (type === 'power') {
-              db.prepare('INSERT INTO power_history (member_id, power, date) VALUES (?, ?, ?)').run(
-                member.id, row.Power || row.power || row.Poder || row.poder || row.PODER, row.Date || row.date || row.Data || row.data || row.DATA
+              db.prepare('INSERT INTO power_history (member_id, power, date, import_id) VALUES (?, ?, ?, ?)').run(
+                member.id, row.Power || row.power || row.Poder || row.poder || row.PODER, row.Date || row.date || row.Data || row.data || row.DATA || importDate, importId
               );
             } else if (type === 'guerra_total') {
-              db.prepare('INSERT INTO guerra_total (member_id, power, date) VALUES (?, ?, ?)').run(
-                member.id, row.Power || row.power || row.Poder || row.poder || row.PODER, row.Date || row.date || row.Data || row.data || row.DATA
+              db.prepare('INSERT INTO guerra_total (member_id, power, date, import_id) VALUES (?, ?, ?, ?)').run(
+                member.id, row.Power || row.power || row.Poder || row.poder || row.PODER, row.Date || row.date || row.Data || row.data || row.DATA || importDate, importId
               );
             } else if (type === 'torneio_celeste') {
-              db.prepare('INSERT INTO torneio_celeste (member_id, guild, score, field, date) VALUES (?, ?, ?, ?, ?)').run(
-                member.id, row.Guild || row.guild || row.GUILD, row.Score || row.score || row.Pontuacao || row.pontuacao || row.PONTUACAO, row.Field || row.field || row.Campo || row.campo || row.CAMPO, row.Date || row.date || row.Data || row.data || row.DATA
+              db.prepare('INSERT INTO torneio_celeste (member_id, guild, score, field, date, import_id) VALUES (?, ?, ?, ?, ?, ?)').run(
+                member.id, row.Guild || row.guild || row.GUILD, row.Score || row.score || row.Pontuacao || row.pontuacao || row.PONTUACAO, row.Field || row.field || row.Campo || row.campo || row.CAMPO, row.Date || row.date || row.Data || row.data || row.DATA || importDate, importId
               );
             } else if (type === 'pico_gloria') {
-              db.prepare('INSERT INTO pico_gloria (member_id, round, score, date) VALUES (?, ?, ?, ?)').run(
-                member.id, row.Round || row.round || row.Rodada || row.rodada || row.RODADA, row.Score || row.score || row.Pontuacao || row.pontuacao || row.PONTUACAO, row.Date || row.date || row.Data || row.data || row.DATA
+              db.prepare('INSERT INTO pico_gloria (member_id, round, score, date, import_id) VALUES (?, ?, ?, ?, ?)').run(
+                member.id, row.Round || row.round || row.Rodada || row.rodada || row.RODADA, row.Score || row.score || row.Pontuacao || row.pontuacao || row.PONTUACAO, row.Date || row.date || row.Data || row.data || row.DATA || importDate, importId
               );
             } else if (type === 'fenda') {
               const seasonRow = db.prepare("SELECT value FROM settings WHERE key = 'fenda_season'").get() as any;
               const season = parseInt(seasonRow?.value || '1', 10);
               const crystals = row.Crystals || row.crystals || row.Cristais || row.cristais || row.CRISTAIS;
               if (crystals) {
-                db.prepare('INSERT INTO fenda_history (member_id, crystals, date, season) VALUES (?, ?, ?, ?)').run(
-                  member.id, crystals, row.Date || row.date || row.Data || row.data || row.DATA || new Date().toISOString().split('T')[0], season
+                db.prepare('INSERT INTO fenda_history (member_id, crystals, date, season, import_id) VALUES (?, ?, ?, ?, ?)').run(
+                  member.id, crystals, row.Date || row.date || row.Data || row.data || row.DATA || importDate, season, importId
                 );
               }
             }
@@ -416,6 +471,37 @@ app.post('/api/upload/:type', authenticateToken, upload.single('file'), (req, re
         res.status(500).json({ error: 'Erro ao processar CSV: ' + e.message });
       }
     });
+});
+
+// Imports History
+app.get('/api/imports', authenticateToken, (req, res) => {
+  const imports = db.prepare(`
+    SELECT i.*, u.username 
+    FROM imports i 
+    JOIN users u ON i.user_id = u.id 
+    ORDER BY i.created_at DESC
+  `).all();
+  res.json(imports);
+});
+
+app.delete('/api/imports/:id', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  const id = req.params.id;
+  
+  try {
+    db.transaction(() => {
+      db.prepare('DELETE FROM power_history WHERE import_id = ?').run(id);
+      db.prepare('DELETE FROM guerra_total WHERE import_id = ?').run(id);
+      db.prepare('DELETE FROM torneio_celeste WHERE import_id = ?').run(id);
+      db.prepare('DELETE FROM pico_gloria WHERE import_id = ?').run(id);
+      db.prepare('DELETE FROM fenda_history WHERE import_id = ?').run(id);
+      db.prepare('DELETE FROM imports WHERE id = ?').run(id);
+    })();
+    
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Absences (Faltas)

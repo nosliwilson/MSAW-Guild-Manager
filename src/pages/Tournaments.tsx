@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Upload, Swords, Info, Trash2 } from 'lucide-react';
 
 export default function Tournaments({ fetchApi }: { fetchApi: any }) {

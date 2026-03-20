@@ -4,8 +4,8 @@
  */
 
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
-import { Users, Shield, Activity, Swords, Trophy, CalendarX, LogOut, Menu, X, Settings, Gem } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Users, Shield, Activity, Swords, Trophy, CalendarX, LogOut, Menu, X, Settings, Gem, History } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -22,6 +22,7 @@ import Tournaments from './pages/Tournaments';
 import Absences from './pages/Absences';
 import UsersAdmin from './pages/UsersAdmin';
 import Fenda from './pages/Fenda';
+import ImportsHistory from './pages/ImportsHistory';
 
 function Layout({ children, user, setAuth }: { children: React.ReactNode, user: any, setAuth: any }) {
   const navigate = useNavigate();
@@ -39,7 +40,10 @@ function Layout({ children, user, setAuth }: { children: React.ReactNode, user: 
     { name: 'Fenda', path: '/fenda', icon: Gem },
     { name: 'Torneios', path: '/tournaments', icon: Swords },
     { name: 'Faltas', path: '/absences', icon: CalendarX },
-    ...(user?.role === 'admin' ? [{ name: 'Usuários', path: '/users', icon: Settings }] : []),
+    ...(user?.role === 'admin' ? [
+      { name: 'Histórico', path: '/imports', icon: History },
+      { name: 'Usuários', path: '/users', icon: Settings }
+    ] : []),
   ];
 
   return (
@@ -162,6 +166,7 @@ export default function App() {
         <Route path="/fenda" element={<ProtectedRoute token={token} user={user} setAuth={setAuth}><Fenda fetchApi={fetchApi} /></ProtectedRoute>} />
         <Route path="/tournaments" element={<ProtectedRoute token={token} user={user} setAuth={setAuth}><Tournaments fetchApi={fetchApi} /></ProtectedRoute>} />
         <Route path="/absences" element={<ProtectedRoute token={token} user={user} setAuth={setAuth}><Absences fetchApi={fetchApi} /></ProtectedRoute>} />
+        <Route path="/imports" element={<ProtectedRoute token={token} user={user} setAuth={setAuth}><ImportsHistory fetchApi={fetchApi} user={user} /></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute token={token} user={user} setAuth={setAuth}><UsersAdmin fetchApi={fetchApi} user={user} /></ProtectedRoute>} />
       </Routes>
     </Router>
