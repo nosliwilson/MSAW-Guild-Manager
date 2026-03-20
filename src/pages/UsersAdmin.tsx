@@ -54,6 +54,19 @@ export default function UsersAdmin({ fetchApi, user }: { fetchApi: any, user: an
     loadUsers();
   };
 
+  const handleRoleChange = async (id: number, role: string) => {
+    try {
+      await fetchApi(`/api/users/${id}/role`, {
+        method: 'POST',
+        body: JSON.stringify({ role })
+      });
+      loadUsers();
+    } catch (e: any) {
+      alert(e.message);
+      loadUsers();
+    }
+  };
+
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!resetId) return;
@@ -130,7 +143,17 @@ export default function UsersAdmin({ fetchApi, user }: { fetchApi: any, user: an
               <tr key={u.id} className="hover:bg-zinc-800/50">
                 <td className="px-6 py-4">{u.id}</td>
                 <td className="px-6 py-4 font-medium text-white">{u.username}</td>
-                <td className="px-6 py-4 capitalize">{u.role}</td>
+                <td className="px-6 py-4">
+                  <select
+                    value={u.role}
+                    onChange={(e) => handleRoleChange(u.id, e.target.value)}
+                    disabled={u.id === user.id}
+                    className="bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-sm text-white disabled:opacity-50"
+                  >
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </td>
                 <td className="px-6 py-4">
                   {u.is_blocked ? (
                     <span className="text-red-400 bg-red-500/10 px-2 py-1 rounded text-xs">Bloqueado</span>

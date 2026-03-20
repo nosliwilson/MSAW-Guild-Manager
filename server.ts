@@ -161,6 +161,23 @@ app.post('/api/users/:id/block', authenticateToken, (req: any, res) => {
   res.json({ success: true });
 });
 
+app.post('/api/users/:id/role', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  const { role } = req.body;
+  if (role !== 'admin' && role !== 'user') return res.status(400).json({ error: 'Papel inválido' });
+  
+  if (role === 'user') {
+    const adminCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'").get() as any;
+    const targetUser = db.prepare("SELECT role FROM users WHERE id = ?").get(req.params.id) as any;
+    if (targetUser && targetUser.role === 'admin' && adminCount.count <= 1) {
+      return res.status(400).json({ error: 'Não é possível remover o último administrador' });
+    }
+  }
+  
+  db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, req.params.id);
+  res.json({ success: true });
+});
+
 app.post('/api/users/:id/reset-password', authenticateToken, (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   const { newPassword } = req.body;
