@@ -102,6 +102,7 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
       body: JSON.stringify({ role: newRole, start_date: newRoleDate })
     });
     loadRoles(selectedMember);
+    loadMembers();
   };
 
   const handleDeleteMember = async (id: number) => {
@@ -208,6 +209,7 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
           <thead className="bg-zinc-950/50 text-zinc-300">
             <tr>
               <th className="px-6 py-4 font-medium">Nick</th>
+              <th className="px-6 py-4 font-medium">Cargo</th>
               <th className="px-6 py-4 font-medium">Status</th>
               <th className="px-6 py-4 font-medium">Entrada</th>
               <th className="px-6 py-4 font-medium">Saída</th>
@@ -218,6 +220,7 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
             {members.filter(m => activeTab === 'ativos' ? m.status === 'ativo' : m.status === 'inativo').map(m => (
               <tr key={m.id} className="hover:bg-zinc-800/50">
                 <td className="px-6 py-4 font-medium text-white">{m.nick}</td>
+                <td className="px-6 py-4 text-emerald-400">{m.role || 'Membro'}</td>
                 <td className="px-6 py-4">
                   <select
                     value={m.status}

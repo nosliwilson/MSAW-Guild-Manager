@@ -7,6 +7,8 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
   const [uploading, setUploading] = useState(false);
   const [selectedNick, setSelectedNick] = useState<string>('all');
   const [selectedDate, setSelectedDate] = useState<string>('all');
+  const [selectedRole, setSelectedRole] = useState<string>('all');
+  const [statusTab, setStatusTab] = useState<'ativos' | 'inativos'>('ativos');
   const [activeTab, setActiveTab] = useState<'historico' | 'comparacao'>('historico');
   const [compareStart, setCompareStart] = useState('');
   const [compareEnd, setCompareEnd] = useState('');
@@ -15,14 +17,14 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
   const loadHistory = async () => {
     const res = await fetchApi('/api/power');
     const data = await res.json();
-    setHistory(data.filter((h: any) => h.status !== 'inativo'));
+    setHistory(data);
   };
 
   const loadComparison = async () => {
     if (!compareStart || !compareEnd) return;
     const res = await fetchApi(`/api/power/compare?start=${compareStart}&end=${compareEnd}`);
     const data = await res.json();
-    setCompareData(data.filter((d: any) => d.status !== 'inativo').map((d: any) => ({
+    setCompareData(data.map((d: any) => ({
       ...d,
       diff: d.end_power - d.start_power
     })).sort((a: any, b: any) => b.diff - a.diff));
@@ -76,12 +78,14 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
     return power.toLocaleString();
   };
 
-  const uniqueNicks = Array.from(new Set(history.map(h => h.nick))).sort();
-  const uniqueDates = Array.from(new Set(history.map(h => h.date))).sort((a, b) => (b as string).localeCompare(a as string));
+  const uniqueNicks = Array.from(new Set(history.filter(h => (statusTab === 'ativos' ? h.status === 'ativo' : h.status === 'inativo') && (selectedRole === 'all' || (h.role || 'Membro') === selectedRole)).map(h => h.nick))).sort();
+  const uniqueDates = Array.from(new Set(history.filter(h => statusTab === 'ativos' ? h.status === 'ativo' : h.status === 'inativo').map(h => h.date))).sort((a, b) => (b as string).localeCompare(a as string));
+  const uniqueRoles = Array.from(new Set(history.filter(h => statusTab === 'ativos' ? h.status === 'ativo' : h.status === 'inativo').map(h => h.role || 'Membro'))).sort();
 
   // Prepare chart data
   const chartData = history
-    .filter(h => (selectedNick === 'all' || h.nick === selectedNick) && (selectedDate === 'all' || h.date === selectedDate))
+    .filter(h => (statusTab === 'ativos' ? h.status === 'ativo' : h.status === 'inativo'))
+    .filter(h => (selectedNick === 'all' || h.nick === selectedNick) && (selectedDate === 'all' || h.date === selectedDate) && (selectedRole === 'all' || (h.role || 'Membro') === selectedRole))
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
     .map(h => ({
       date: h.date,
@@ -131,25 +135,54 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
         </div>
       </div>
 
-      <div className="flex gap-2 border-b border-zinc-800 pb-4">
-        <button
-          onClick={() => setActiveTab('historico')}
-          className={`px-4 py-2 rounded-lg transition-colors ${activeTab === 'historico' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
-        >
-          Histórico Geral
-        </button>
-        <button
-          onClick={() => setActiveTab('comparacao')}
-          className={`px-4 py-2 rounded-lg transition-colors ${activeTab === 'comparacao' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
-        >
-          Comparação de Poder
-        </button>
+      <div className="flex justify-between items-center border-b border-zinc-800 pb-4">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setActiveTab('historico')}
+            className={`px-4 py-2 rounded-lg transition-colors ${activeTab === 'historico' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+          >
+            Histórico Geral
+          </button>
+          <button
+            onClick={() => setActiveTab('comparacao')}
+            className={`px-4 py-2 rounded-lg transition-colors ${activeTab === 'comparacao' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+          >
+            Comparação de Poder
+          </button>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setStatusTab('ativos')}
+            className={`px-4 py-2 rounded-lg transition-colors ${statusTab === 'ativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+          >
+            Ativos
+          </button>
+          <button
+            onClick={() => setStatusTab('inativos')}
+            className={`px-4 py-2 rounded-lg transition-colors ${statusTab === 'inativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+          >
+            Arquivo Morto (Inativos)
+          </button>
+        </div>
       </div>
 
       {activeTab === 'historico' ? (
         <>
           <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800">
         <div className="mb-6 flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-zinc-400">Filtrar por Cargo:</label>
+            <select
+              value={selectedRole}
+              onChange={e => setSelectedRole(e.target.value)}
+              className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
+            >
+              <option value="all">Todos</option>
+              {uniqueRoles.map(role => (
+                <option key={role as string} value={role as string}>{role as string}</option>
+              ))}
+            </select>
+          </div>
           <div className="flex items-center gap-2">
             <label className="text-sm text-zinc-400">Filtrar por Membro:</label>
             <select
@@ -238,15 +271,17 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
                 <tr>
                   <th className="px-6 py-4 font-medium">Data</th>
                   <th className="px-6 py-4 font-medium">Nick</th>
+                  <th className="px-6 py-4 font-medium">Cargo</th>
                   <th className="px-6 py-4 font-medium">Poder</th>
                   <th className="px-6 py-4 font-medium">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800">
-                {history.filter(h => (selectedNick === 'all' || h.nick === selectedNick) && (selectedDate === 'all' || h.date === selectedDate)).map(h => (
+                {history.filter(h => (statusTab === 'ativos' ? h.status === 'ativo' : h.status === 'inativo') && (selectedNick === 'all' || h.nick === selectedNick) && (selectedDate === 'all' || h.date === selectedDate) && (selectedRole === 'all' || (h.role || 'Membro') === selectedRole)).map(h => (
                   <tr key={h.id} className="hover:bg-zinc-800/50">
                     <td className="px-6 py-4">{formatDate(h.date)}</td>
                     <td className="px-6 py-4 font-medium text-white">{h.nick}</td>
+                    <td className="px-6 py-4 text-emerald-400">{h.role || 'Membro'}</td>
                     <td className="px-6 py-4 text-emerald-400">{formatPower(Number(h.power))}</td>
                     <td className="px-6 py-4">
                       <button
@@ -259,13 +294,20 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
                     </td>
                   </tr>
                 ))}
+                {history.filter(h => (statusTab === 'ativos' ? h.status === 'ativo' : h.status === 'inativo') && (selectedNick === 'all' || h.nick === selectedNick) && (selectedDate === 'all' || h.date === selectedDate) && (selectedRole === 'all' || (h.role || 'Membro') === selectedRole)).length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-8 text-center text-zinc-500">
+                      Nenhum dado registrado para membros {statusTab}.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         </>
       ) : (
         <div className="space-y-6">
-          <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 flex gap-4 items-end">
+          <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 flex flex-wrap gap-4 items-end">
             <div>
               <label className="block text-sm text-zinc-400 mb-1">Data Inicial</label>
               <input
@@ -284,6 +326,19 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
                 className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
               />
             </div>
+            <div>
+              <label className="block text-sm text-zinc-400 mb-1">Filtrar por Cargo</label>
+              <select
+                value={selectedRole}
+                onChange={e => setSelectedRole(e.target.value)}
+                className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
+              >
+                <option value="all">Todos</option>
+                {uniqueRoles.map(role => (
+                  <option key={role as string} value={role as string}>{role as string}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {compareData.length > 0 && (
@@ -291,7 +346,7 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
               <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800">
                 <div className="h-[400px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={compareData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                    <BarChart data={compareData.filter(d => (statusTab === 'ativos' ? d.status === 'ativo' : d.status === 'inativo') && (selectedRole === 'all' || (d.role || 'Membro') === selectedRole))} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
                       <XAxis dataKey="nick" stroke="#a1a1aa" />
                       <YAxis 
@@ -315,15 +370,17 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
                   <thead className="bg-zinc-950/50 text-zinc-300">
                     <tr>
                       <th className="px-6 py-4 font-medium">Nick</th>
+                      <th className="px-6 py-4 font-medium">Cargo</th>
                       <th className="px-6 py-4 font-medium">Poder Inicial</th>
                       <th className="px-6 py-4 font-medium">Poder Final</th>
                       <th className="px-6 py-4 font-medium">Evolução</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800">
-                    {compareData.map((d, i) => (
+                    {compareData.filter(d => (statusTab === 'ativos' ? d.status === 'ativo' : d.status === 'inativo') && (selectedRole === 'all' || (d.role || 'Membro') === selectedRole)).map((d, i) => (
                       <tr key={i} className="hover:bg-zinc-800/50">
                         <td className="px-6 py-4 font-medium text-white">{d.nick}</td>
+                        <td className="px-6 py-4 text-emerald-400">{d.role || 'Membro'}</td>
                         <td className="px-6 py-4">{formatPower(d.start_power)}</td>
                         <td className="px-6 py-4">{formatPower(d.end_power)}</td>
                         <td className="px-6 py-4">
@@ -334,6 +391,13 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
                         </td>
                       </tr>
                     ))}
+                    {compareData.filter(d => (statusTab === 'ativos' ? d.status === 'ativo' : d.status === 'inativo') && (selectedRole === 'all' || (d.role || 'Membro') === selectedRole)).length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-8 text-center text-zinc-500">
+                          Nenhum dado registrado para membros {statusTab}.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>

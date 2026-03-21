@@ -231,7 +231,11 @@ app.delete('/api/users/:id', authenticateToken, (req: any, res) => {
 
 // Members
 app.get('/api/members', authenticateToken, (req, res) => {
-  const members = db.prepare('SELECT * FROM members').all();
+  const members = db.prepare(`
+    SELECT m.*, 
+           COALESCE((SELECT role FROM member_roles WHERE member_id = m.id AND end_date IS NULL ORDER BY start_date DESC LIMIT 1), 'Membro') as role
+    FROM members m
+  `).all();
   res.json(members);
 });
 
@@ -294,6 +298,7 @@ app.get('/api/power/compare', authenticateToken, (req, res) => {
     SELECT 
       m.nick,
       m.status,
+      COALESCE((SELECT role FROM member_roles WHERE member_id = m.id AND end_date IS NULL ORDER BY start_date DESC LIMIT 1), 'Membro') as role,
       COALESCE(MAX(CASE WHEN p.date = ? THEN p.power END), 0) as start_power,
       COALESCE(MAX(CASE WHEN p.date = ? THEN p.power END), 0) as end_power
     FROM members m
@@ -307,7 +312,8 @@ app.get('/api/power/compare', authenticateToken, (req, res) => {
 
 app.get('/api/power', authenticateToken, (req, res) => {
   const history = db.prepare(`
-    SELECT p.*, m.nick, m.status 
+    SELECT p.*, m.nick, m.status,
+           COALESCE((SELECT role FROM member_roles WHERE member_id = m.id AND end_date IS NULL ORDER BY start_date DESC LIMIT 1), 'Membro') as role
     FROM power_history p 
     JOIN members m ON p.member_id = m.id 
     ORDER BY p.date DESC
