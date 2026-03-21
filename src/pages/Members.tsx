@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, ShieldAlert, Upload, Info, Trash2, X } from 'lucide-react';
-import { sortMembers } from '../utils/sorting';
+import { sortMembers, SortCriteria } from '../utils/sorting';
 import ImportModal from '../components/ImportModal';
+import Pagination from '../components/Pagination';
+import SortSelector from '../components/SortSelector';
 
 export default function Members({ fetchApi }: { fetchApi: any }) {
   const [members, setMembers] = useState<any[]>([]);
@@ -21,6 +23,10 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
   const [newRole, setNewRole] = useState('Membro');
   const [newRoleDate, setNewRoleDate] = useState(new Date().toISOString().split('T')[0]);
   const [importPreview, setImportPreview] = useState<{ results: any[], unknownNicks: string[] } | null>(null);
+
+  const [sortCriteria, setSortCriteria] = useState<SortCriteria>('role');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(180);
 
   const loadMembers = async () => {
     const res = await fetchApi('/api/members');
@@ -164,9 +170,20 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
     return `${parts[2]}/${parts[1]}/${parts[0]}`;
   };
 
+  const filteredMembers = members
+    .filter(m => activeTab === 'ativos' ? m.status === 'ativo' : m.status === 'inativo')
+    .sort((a, b) => sortMembers(a, b, sortCriteria));
+
+  const totalPages = Math.ceil(filteredMembers.length / pageSize);
+  const paginatedMembers = filteredMembers.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab, sortCriteria, pageSize]);
+
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         {importPreview && (
           <ImportModal
             unknownNicks={importPreview.unknownNicks}
@@ -213,19 +230,22 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
         </div>
       </div>
 
-      <div className="flex gap-2 border-b border-zinc-800 pb-4">
-        <button
-          onClick={() => setActiveTab('ativos')}
-          className={`px-4 py-2 rounded-lg transition-colors ${activeTab === 'ativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
-        >
-          Ativos
-        </button>
-        <button
-          onClick={() => setActiveTab('inativos')}
-          className={`px-4 py-2 rounded-lg transition-colors ${activeTab === 'inativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
-        >
-          Arquivo Morto (Inativos)
-        </button>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-zinc-800 pb-4">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setActiveTab('ativos')}
+            className={`px-4 py-2 rounded-lg transition-colors ${activeTab === 'ativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+          >
+            Ativos
+          </button>
+          <button
+            onClick={() => setActiveTab('inativos')}
+            className={`px-4 py-2 rounded-lg transition-colors ${activeTab === 'inativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+          >
+            Arquivo Morto (Inativos)
+          </button>
+        </div>
+        <SortSelector criteria={sortCriteria} onChange={setSortCriteria} />
       </div>
 
       {showAdd && (
@@ -270,10 +290,7 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800">
-            {members
-              .filter(m => activeTab === 'ativos' ? m.status === 'ativo' : m.status === 'inativo')
-              .sort(sortMembers)
-              .map(m => (
+            {paginatedMembers.map(m => (
               <tr key={m.id} className="hover:bg-zinc-800/50">
                 <td className="px-6 py-4 font-medium text-white">{m.nick}</td>
                 <td className="px-6 py-4 text-emerald-400">{m.role || 'Membro'}</td>
@@ -319,6 +336,14 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
             ))}
           </tbody>
         </table>
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          itemsPerPage={pageSize}
+          onItemsPerPageChange={setPageSize}
+          totalItems={filteredMembers.length}
+        />
       </div>
 
       {showExitModal && (

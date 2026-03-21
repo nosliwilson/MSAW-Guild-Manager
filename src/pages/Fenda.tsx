@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Upload, Gem, Info, AlertTriangle, Trash2, RotateCcw, TrendingUp, TrendingDown } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { sortMembers } from '../utils/sorting';
+import { sortMembers, SortCriteria } from '../utils/sorting';
 import ImportModal from '../components/ImportModal';
+import SortSelector from '../components/SortSelector';
+import Pagination from '../components/Pagination';
 
 export default function Fenda({ fetchApi }: { fetchApi: any }) {
   const [data, setData] = useState<any[]>([]);
@@ -23,6 +25,9 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
   const [seasonsData, setSeasonsData] = useState<any[]>([]);
   const [importPreview, setImportPreview] = useState<{ results: any[], unknownNicks: string[] } | null>(null);
   const [members, setMembers] = useState<any[]>([]);
+  const [sortCriteria, setSortCriteria] = useState<SortCriteria>('role');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(180);
 
   const loadMembers = async () => {
     const res = await fetchApi('/api/members');
@@ -37,6 +42,12 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
     setData(json.data);
     setSeason(json.currentSeason);
     if (s === 'all') setSelectedSeason(json.currentSeason);
+
+    // Set default date to latest if not already set or if switching seasons
+    const dates = Array.from(new Set(json.data.map((d: any) => d.date))).sort((a: any, b: any) => (b as string).localeCompare(a as string));
+    if (dates.length > 0 && (selectedDate === 'all' || !dates.includes(selectedDate))) {
+      setSelectedDate(dates[0] as string);
+    }
   };
 
   const loadAllSeasons = async () => {
@@ -184,6 +195,39 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
 
   const uniqueDates = Array.from(new Set(data.map(d => d.date))).sort((a, b) => (b as string).localeCompare(a as string));
 
+  const filteredData = useMemo(() => {
+    let filtered = data.filter(item => 
+      (statusTab === 'ativos' ? item.status === 'ativo' : item.status === 'inativo') && 
+      (selectedDate === 'all' || item.date === selectedDate)
+    );
+
+    // Join with members to get role and power for sorting
+    const enriched = filtered.map(item => {
+      const member = members.find(m => m.id === item.member_id || m.nick === item.nick);
+      return {
+        ...item,
+        role: member?.role || 'Membro',
+        power: member?.power || 0
+      };
+    });
+
+    return sortMembers(enriched, sortCriteria);
+  }, [data, statusTab, selectedDate, members, sortCriteria]);
+
+  const totalCrystals = useMemo(() => {
+    if (selectedDate === 'all') return 0;
+    return filteredData.reduce((sum, item) => sum + Number(item.crystals), 0);
+  }, [filteredData, selectedDate]);
+
+  const paginatedData = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredData.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredData, currentPage, itemsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedDate, statusTab, sortCriteria, itemsPerPage]);
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -328,6 +372,16 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
                 ))}
               </select>
             </div>
+            
+            <SortSelector criteria={sortCriteria} onChange={setSortCriteria} />
+
+            {selectedDate !== 'all' && (
+              <div className="bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-lg">
+                <span className="text-xs text-zinc-400 block">Total de Cristais:</span>
+                <span className="text-emerald-400 font-bold">{formatNumber(totalCrystals)}</span>
+              </div>
+            )}
+
             {selectedDate !== 'all' && (
               <button
                 onClick={() => {
@@ -354,9 +408,9 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800">
-              {data.filter(item => (statusTab === 'ativos' ? item.status === 'ativo' : item.status === 'inativo') && (selectedDate === 'all' || item.date === selectedDate)).map((item, index) => (
+              {paginatedData.map((item, index) => (
                 <tr key={item.id} className="hover:bg-zinc-800/50">
-                  <td className="px-6 py-4 font-medium text-zinc-500">#{index + 1}</td>
+                  <td className="px-6 py-4 font-medium text-zinc-500">#{(currentPage - 1) * itemsPerPage + index + 1}</td>
                   <td className="px-6 py-4 font-medium text-white">{item.nick}</td>
                   <td className="px-6 py-4 text-emerald-400 font-medium">{formatNumber(Number(item.crystals))}</td>
                   <td className="px-6 py-4">{formatDate(item.date)}</td>
@@ -371,7 +425,7 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
                   </td>
                 </tr>
               ))}
-              {data.filter(item => (statusTab === 'ativos' ? item.status === 'ativo' : item.status === 'inativo') && (selectedDate === 'all' || item.date === selectedDate)).length === 0 && (
+              {filteredData.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-6 py-8 text-center text-zinc-500">
                     Nenhum dado registrado para membros {statusTab} na fenda atual.
@@ -381,6 +435,17 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
             </tbody>
           </table>
         </div>
+
+        {filteredData.length > 0 && (
+          <Pagination
+            currentPage={currentPage}
+            totalPages={Math.ceil(filteredData.length / itemsPerPage)}
+            onPageChange={setCurrentPage}
+            itemsPerPage={itemsPerPage}
+            onItemsPerPageChange={setItemsPerPage}
+            totalItems={filteredData.length}
+          />
+        )}
         </div>
       ) : (
         <div className="space-y-6">

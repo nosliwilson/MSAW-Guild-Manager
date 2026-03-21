@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Upload, Swords, Info, Trash2, TrendingUp, TrendingDown } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { sortMembers } from '../utils/sorting';
+import { sortMembers, SortCriteria } from '../utils/sorting';
 import ImportModal from '../components/ImportModal';
+import SortSelector from '../components/SortSelector';
+import Pagination from '../components/Pagination';
 
 export default function Tournaments({ fetchApi }: { fetchApi: any }) {
   const [activeTab, setActiveTab] = useState('guerra_total');
@@ -22,6 +24,9 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
   const [compareData, setCompareData] = useState<any[]>([]);
   const [importPreview, setImportPreview] = useState<{ results: any[], unknownNicks: string[] } | null>(null);
   const [members, setMembers] = useState<any[]>([]);
+  const [sortCriteria, setSortCriteria] = useState<SortCriteria>('role');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(180);
 
   const loadMembers = async () => {
     const res = await fetchApi('/api/members');
@@ -38,7 +43,14 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
 
   const loadData = async (type: string) => {
     const res = await fetchApi(`/api/tournaments/${type}`);
-    setData(await res.json());
+    const json = await res.json();
+    setData(json);
+
+    // Set default date to latest if not already set or if switching tabs
+    const dates = Array.from(new Set(json.map((d: any) => d.date))).sort((a: any, b: any) => (b as string).localeCompare(a as string));
+    if (dates.length > 0 && (selectedDate === 'all' || !dates.includes(selectedDate))) {
+      setSelectedDate(dates[0] as string);
+    }
   };
 
   const loadComparison = async () => {
@@ -134,23 +146,51 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
   const uniqueGuilds = Array.from(new Set(data.map(d => String(d.guild)).filter(g => g !== 'undefined'))).sort();
   const uniqueFields = Array.from(new Set(data.map(d => String(d.field)).filter(f => f !== 'undefined'))).sort();
 
-  const filteredData = data.filter(item => {
-    if (statusTab === 'ativos' && item.status !== 'ativo') return false;
-    if (statusTab === 'inativos' && item.status !== 'inativo') return false;
-    if (selectedDate !== 'all' && item.date !== selectedDate) return false;
-    
-    if (activeTab === 'pico_gloria') {
-      if (selectedTeam !== 'all' && String(item.team || 'Livre') !== selectedTeam) return false;
-      if (selectedRound !== 'all' && String(item.round) !== selectedRound) return false;
-    }
-    
-    if (activeTab === 'torneio_celeste') {
-      if (selectedGuild !== 'all' && String(item.guild) !== selectedGuild) return false;
-      if (selectedField !== 'all' && String(item.field) !== selectedField) return false;
-    }
-    
-    return true;
-  }).sort(sortMembers);
+  const filteredData = useMemo(() => {
+    let filtered = data.filter(item => {
+      if (statusTab === 'ativos' && item.status !== 'ativo') return false;
+      if (statusTab === 'inativos' && item.status !== 'inativo') return false;
+      if (selectedDate !== 'all' && item.date !== selectedDate) return false;
+      
+      if (activeTab === 'pico_gloria') {
+        if (selectedTeam !== 'all' && String(item.team || 'Livre') !== selectedTeam) return false;
+        if (selectedRound !== 'all' && String(item.round) !== selectedRound) return false;
+      }
+      
+      if (activeTab === 'torneio_celeste') {
+        if (selectedGuild !== 'all' && String(item.guild) !== selectedGuild) return false;
+        if (selectedField !== 'all' && String(item.field) !== selectedField) return false;
+      }
+      
+      return true;
+    });
+
+    // Enriched with member info for sorting
+    const enriched = filtered.map(item => {
+      const member = members.find(m => m.id === item.member_id || m.nick === item.nick);
+      return {
+        ...item,
+        role: member?.role || 'Membro',
+        power: member?.power || 0
+      };
+    });
+
+    return sortMembers(enriched, sortCriteria);
+  }, [data, statusTab, selectedDate, activeTab, selectedTeam, selectedRound, selectedGuild, selectedField, members, sortCriteria]);
+
+  const totalPoints = useMemo(() => {
+    if (selectedDate === 'all') return 0;
+    return filteredData.reduce((sum, item) => sum + Number(item.power || item.score || 0), 0);
+  }, [filteredData, selectedDate]);
+
+  const paginatedData = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredData.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredData, currentPage, itemsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedDate, statusTab, sortCriteria, itemsPerPage, activeTab, selectedTeam, selectedRound, selectedGuild, selectedField]);
 
   return (
     <div className="space-y-6">
@@ -339,6 +379,13 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
             )}
 
             {selectedDate !== 'all' && (
+              <div className="bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-lg">
+                <span className="text-xs text-zinc-400 block">Total de Pontos:</span>
+                <span className="text-emerald-400 font-bold">{totalPoints.toLocaleString('pt-BR')}</span>
+              </div>
+            )}
+
+            {selectedDate !== 'all' && (
               <button
                 onClick={() => {
                   handleDeleteByDate(selectedDate);
@@ -351,25 +398,29 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
               </button>
             )}
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setStatusTab('ativos')}
-              className={`px-4 py-2 rounded-lg transition-colors ${statusTab === 'ativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
-            >
-              Ativos
-            </button>
-            <button
-              onClick={() => setStatusTab('inativos')}
-              className={`px-4 py-2 rounded-lg transition-colors ${statusTab === 'inativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
-            >
-              Arquivo Morto (Inativos)
-            </button>
+          <div className="flex items-center gap-4">
+            <SortSelector criteria={sortCriteria} onChange={setSortCriteria} />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setStatusTab('ativos')}
+                className={`px-4 py-2 rounded-lg transition-colors ${statusTab === 'ativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+              >
+                Ativos
+              </button>
+              <button
+                onClick={() => setStatusTab('inativos')}
+                className={`px-4 py-2 rounded-lg transition-colors ${statusTab === 'inativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+              >
+                Arquivo Morto (Inativos)
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {viewTab === 'historico' ? (
-        <div className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden">
+        <div className="space-y-4">
+          <div className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden">
           <table className="w-full text-left text-sm text-zinc-400">
             <thead className="bg-zinc-950/50 text-zinc-300">
               <tr>
@@ -399,7 +450,7 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800">
-              {filteredData.map(item => (
+              {paginatedData.map(item => (
                 <tr key={item.id} className="hover:bg-zinc-800/50">
                   <td className="px-6 py-4">{formatDate(item.date)}</td>
                   <td className="px-6 py-4 font-medium text-white">{item.nick}</td>
@@ -447,6 +498,19 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
               )}
             </tbody>
           </table>
+        </div>
+        {filteredData.length > 0 && (
+          <div className="mt-4">
+            <Pagination
+              currentPage={currentPage}
+              totalPages={Math.ceil(filteredData.length / itemsPerPage)}
+              onPageChange={setCurrentPage}
+              itemsPerPage={itemsPerPage}
+              onItemsPerPageChange={setItemsPerPage}
+              totalItems={filteredData.length}
+            />
+          </div>
+        )}
         </div>
       ) : (
         <div className="space-y-6">

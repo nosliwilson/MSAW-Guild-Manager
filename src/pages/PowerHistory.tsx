@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Upload, Download, Info, Trash2, TrendingUp, TrendingDown, ArrowUpDown } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { sortMembers } from '../utils/sorting';
+import { sortMembers, SortCriteria } from '../utils/sorting';
 import ImportModal from '../components/ImportModal';
+import SortSelector from '../components/SortSelector';
+import Pagination from '../components/Pagination';
 
 export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
   const [history, setHistory] = useState<any[]>([]);
@@ -17,9 +19,11 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
   const [compareMode, setCompareMode] = useState<'period' | 'single'>('period');
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const [compareData, setCompareData] = useState<any[]>([]);
-  const [sortBy, setSortBy] = useState<'cargo' | 'poder'>('cargo');
   const [importPreview, setImportPreview] = useState<{ results: any[], unknownNicks: string[] } | null>(null);
   const [members, setMembers] = useState<any[]>([]);
+  const [sortCriteria, setSortCriteria] = useState<SortCriteria>('role');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(180);
 
   const loadMembers = async () => {
     const res = await fetchApi('/api/members');
@@ -30,6 +34,12 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
     const res = await fetchApi('/api/power');
     const data = await res.json();
     setHistory(data);
+
+    // Set default date to latest if not already set
+    const dates = Array.from(new Set(data.map((h: any) => h.date))).sort((a: any, b: any) => (b as string).localeCompare(a as string));
+    if (dates.length > 0 && selectedDate === 'all') {
+      setSelectedDate(dates[0] as string);
+    }
   };
 
   const loadComparison = async () => {
@@ -118,16 +128,27 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
   const uniqueDates = Array.from(new Set(history.filter(h => statusTab === 'ativos' ? h.status === 'ativo' : h.status === 'inativo').map(h => h.date))).sort((a, b) => (b as string).localeCompare(a as string));
   const uniqueRoles = Array.from(new Set(history.filter(h => statusTab === 'ativos' ? h.status === 'ativo' : h.status === 'inativo').map(h => h.role || 'Membro'))).sort();
 
-  const getSortedHistory = () => {
-    const filtered = history
+  const filteredHistory = useMemo(() => {
+    let filtered = history
       .filter(h => (statusTab === 'ativos' ? h.status === 'ativo' : h.status === 'inativo'))
       .filter(h => (selectedNick === 'all' || h.nick === selectedNick) && (selectedDate === 'all' || h.date === selectedDate) && (selectedRole === 'all' || (h.role || 'Membro') === selectedRole));
 
-    if (sortBy === 'poder') {
-      return filtered.sort((a, b) => Number(b.power) - Number(a.power));
-    }
-    return filtered.sort(sortMembers);
-  };
+    return sortMembers(filtered, sortCriteria);
+  }, [history, statusTab, selectedNick, selectedDate, selectedRole, sortCriteria]);
+
+  const totalPower = useMemo(() => {
+    if (selectedDate === 'all') return 0;
+    return filteredHistory.reduce((sum, item) => sum + Number(item.power), 0);
+  }, [filteredHistory, selectedDate]);
+
+  const paginatedHistory = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredHistory.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredHistory, currentPage, itemsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedDate, statusTab, sortCriteria, itemsPerPage, selectedNick, selectedRole]);
 
   // Prepare chart data
   const chartData = history
@@ -228,17 +249,7 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
           )}
           <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800">
           <div className="mb-6 flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-zinc-400">Ordenar por:</label>
-              <select
-                value={sortBy}
-                onChange={e => setSortBy(e.target.value as any)}
-                className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
-              >
-                <option value="cargo">Cargo (Padrão)</option>
-                <option value="poder">Poder (Maior para Menor)</option>
-              </select>
-            </div>
+            <SortSelector criteria={sortCriteria} onChange={setSortCriteria} />
             <div className="flex items-center gap-2">
             <label className="text-sm text-zinc-400">Filtrar por Cargo:</label>
             <select
@@ -278,6 +289,13 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
               ))}
             </select>
           </div>
+
+          {selectedDate !== 'all' && (
+            <div className="bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-lg">
+              <span className="text-xs text-zinc-400 block">Poder Total:</span>
+              <span className="text-emerald-400 font-bold">{formatPower(totalPower)}</span>
+            </div>
+          )}
           {selectedDate !== 'all' && (
             <button
               onClick={() => {
@@ -346,7 +364,7 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800">
-                {getSortedHistory().map((h, i) => (
+                {paginatedHistory.map((h, i) => (
                   <tr key={i} className="hover:bg-zinc-800/50">
                     <td className="px-6 py-4">{formatDate(h.date)}</td>
                     <td className="px-6 py-4 font-medium text-white">{h.nick}</td>
@@ -363,7 +381,7 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
                     </td>
                   </tr>
                 ))}
-                {history.filter(h => (statusTab === 'ativos' ? h.status === 'ativo' : h.status === 'inativo') && (selectedNick === 'all' || h.nick === selectedNick) && (selectedDate === 'all' || h.date === selectedDate) && (selectedRole === 'all' || (h.role || 'Membro') === selectedRole)).length === 0 && (
+                {filteredHistory.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-6 py-8 text-center text-zinc-500">
                       Nenhum dado registrado para membros {statusTab}.
@@ -373,6 +391,18 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
               </tbody>
             </table>
           </div>
+          {filteredHistory.length > 0 && (
+            <div className="mt-4">
+              <Pagination
+                currentPage={currentPage}
+                totalPages={Math.ceil(filteredHistory.length / itemsPerPage)}
+                onPageChange={setCurrentPage}
+                itemsPerPage={itemsPerPage}
+                onItemsPerPageChange={setItemsPerPage}
+                totalItems={filteredHistory.length}
+              />
+            </div>
+          )}
         </>
       ) : (
         <div className="space-y-6">

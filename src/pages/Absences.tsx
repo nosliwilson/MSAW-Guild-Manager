@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { CalendarX, Info, X, Check, AlertCircle } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { CalendarX, Info, X, Check, AlertCircle, Filter, RotateCcw } from 'lucide-react';
 
 export default function Absences({ fetchApi }: { fetchApi: any }) {
   const [absences, setAbsences] = useState<any[]>([]);
@@ -8,6 +8,8 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
   const [justificationType, setJustificationType] = useState<'Abonado' | 'Em Observação' | ''>('');
   const [justificationNote, setJustificationNote] = useState('');
   const [saving, setSaving] = useState(false);
+  const [timeFilter, setTimeFilter] = useState<string>('all');
+  const [eventFilter, setEventFilter] = useState<string>('all');
 
   const loadAbsences = async () => {
     const res = await fetchApi('/api/absences');
@@ -68,6 +70,46 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
     }
   };
 
+  const filteredAbsences = useMemo(() => {
+    return absences.map(member => {
+      // Sort missed dates by date descending (most recent first)
+      let filteredMissedDates = [...member.missedDates].sort((a, b) => b.date.localeCompare(a.date));
+
+      // Apply time filter
+      if (timeFilter !== 'all') {
+        const now = new Date();
+        const days = parseInt(timeFilter);
+        const cutoff = new Date();
+        cutoff.setDate(now.getDate() - days);
+        filteredMissedDates = filteredMissedDates.filter(m => new Date(m.date) >= cutoff);
+      }
+
+      // Apply event filter
+      if (eventFilter !== 'all') {
+        const limit = parseInt(eventFilter);
+        filteredMissedDates = filteredMissedDates.slice(0, limit);
+      }
+
+      // Recalculate totals for the filtered list
+      const totals = filteredMissedDates.reduce((acc, curr) => {
+        acc.total++;
+        const type = curr.justification?.type;
+        if (type === 'Abonado') acc.abonado++;
+        else if (type === 'Em Observação') acc.observacao++;
+        else acc.injustificada++;
+        return acc;
+      }, { total: 0, injustificada: 0, observacao: 0, abonado: 0 });
+
+      return {
+        ...member,
+        missedDates: filteredMissedDates,
+        totals
+      };
+    });
+  }, [absences, timeFilter, eventFilter]);
+
+  const displayAbsences = filteredAbsences.filter(a => activeTab === 'ativos' ? a.status === 'ativo' : a.status === 'inactive');
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -90,6 +132,62 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
         >
           Arquivo Morto (Inativos)
         </button>
+      </div>
+
+      <div className="bg-zinc-900 p-4 rounded-xl border border-zinc-800 flex flex-wrap items-center gap-6">
+        <div className="flex items-center gap-2">
+          <Filter className="w-4 h-4 text-zinc-400" />
+          <span className="text-sm font-medium text-zinc-300">Filtros:</span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-zinc-500 uppercase tracking-wider">Tempo:</label>
+          <select
+            value={timeFilter}
+            onChange={(e) => setTimeFilter(e.target.value)}
+            className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white outline-none focus:ring-1 focus:ring-emerald-500"
+          >
+            <option value="all">Todo o histórico</option>
+            <option value="7">1 Semana</option>
+            <option value="14">2 Semanas</option>
+            <option value="21">3 Semanas</option>
+            <option value="30">1 Mês</option>
+            <option value="60">2 Meses</option>
+            <option value="90">3 Meses</option>
+            <option value="120">4 Meses</option>
+            <option value="150">5 Meses</option>
+            <option value="180">6 Meses</option>
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-zinc-500 uppercase tracking-wider">Eventos:</label>
+          <select
+            value={eventFilter}
+            onChange={(e) => setEventFilter(e.target.value)}
+            className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white outline-none focus:ring-1 focus:ring-emerald-500"
+          >
+            <option value="all">Todos os eventos</option>
+            <option value="5">Últimos 5</option>
+            <option value="10">Últimos 10</option>
+            <option value="20">Últimos 20</option>
+            <option value="50">Últimos 50</option>
+            <option value="100">Últimos 100</option>
+          </select>
+        </div>
+
+        {(timeFilter !== 'all' || eventFilter !== 'all') && (
+          <button
+            onClick={() => {
+              setTimeFilter('all');
+              setEventFilter('all');
+            }}
+            className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white transition-colors ml-auto"
+          >
+            <RotateCcw className="w-3 h-3" />
+            Limpar Filtros
+          </button>
+        )}
       </div>
 
       <div className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden">
@@ -122,7 +220,7 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800">
-            {absences.filter(a => activeTab === 'ativos' ? a.status === 'ativo' : a.status === 'inativo').map((item, i) => (
+            {displayAbsences.map((item, i) => (
               <tr key={i} className="hover:bg-zinc-800/50 align-top">
                 <td className="px-6 py-4 font-medium text-white">{item.nick}</td>
                 <td className="px-6 py-4">
@@ -172,7 +270,7 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
                 </td>
               </tr>
             ))}
-            {absences.filter(a => activeTab === 'ativos' ? a.status === 'ativo' : a.status === 'inativo').length === 0 && (
+            {displayAbsences.length === 0 && (
               <tr>
                 <td colSpan={3} className="px-6 py-8 text-center text-zinc-500">
                   Nenhuma falta registrada para membros {activeTab}.
