@@ -407,7 +407,7 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
                     <>
                       <td className="px-6 py-4">{item.guild}</td>
                       <td className="px-6 py-4">{item.field}</td>
-                      <td className="px-6 py-4 text-emerald-400">{item.score.toLocaleString()}</td>
+                      <td className="px-6 py-4 text-emerald-400">{(item.score || 0).toLocaleString('pt-BR')}</td>
                     </>
                   )}
                   
@@ -419,7 +419,7 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
                         </span>
                       </td>
                       <td className="px-6 py-4">{item.round}</td>
-                      <td className="px-6 py-4 text-emerald-400">{item.score.toLocaleString()}</td>
+                      <td className="px-6 py-4 text-emerald-400">{(item.score || 0).toLocaleString('pt-BR')}</td>
                     </>
                   )}
                   <td className="px-6 py-4">

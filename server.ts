@@ -689,7 +689,7 @@ app.delete('/api/imports/:id', authenticateToken, (req: any, res) => {
 
 // Absences (Faltas)
 app.get('/api/absences', authenticateToken, (req, res) => {
-  const allMembers = db.prepare("SELECT id, nick, status FROM members").all() as any[];
+  const allMembers = db.prepare("SELECT id, nick, status, entry_date FROM members").all() as any[];
   
   // Get all unique dates from tournaments
   const datesGT = db.prepare('SELECT DISTINCT date FROM guerra_total').all() as any[];
@@ -700,14 +700,17 @@ app.get('/api/absences', authenticateToken, (req, res) => {
     let missed = 0;
     
     for (const d of datesGT) {
+      if (d.date < m.entry_date) continue;
       const participated = db.prepare('SELECT 1 FROM guerra_total WHERE member_id = ? AND date = ?').get(m.id, d.date);
       if (!participated) missed++;
     }
     for (const d of datesTC) {
+      if (d.date < m.entry_date) continue;
       const participated = db.prepare('SELECT 1 FROM torneio_celeste WHERE member_id = ? AND date = ?').get(m.id, d.date);
       if (!participated) missed++;
     }
     for (const d of datesPG) {
+      if (d.date < m.entry_date) continue;
       const participated = db.prepare('SELECT 1 FROM pico_gloria WHERE member_id = ? AND date = ?').get(m.id, d.date);
       if (!participated) missed++;
     }
