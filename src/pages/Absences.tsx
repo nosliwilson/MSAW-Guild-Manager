@@ -1,17 +1,72 @@
 import { useState, useEffect } from 'react';
-import { CalendarX } from 'lucide-react';
+import { CalendarX, Info, X, Check, AlertCircle } from 'lucide-react';
 
 export default function Absences({ fetchApi }: { fetchApi: any }) {
   const [absences, setAbsences] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'ativos' | 'inativos'>('ativos');
+  const [selectedAbsence, setSelectedAbsence] = useState<any>(null);
+  const [justificationType, setJustificationType] = useState<'Abonado' | 'Em Observação' | ''>('');
+  const [justificationNote, setJustificationNote] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const loadAbsences = async () => {
+    const res = await fetchApi('/api/absences');
+    setAbsences(await res.json());
+  };
 
   useEffect(() => {
-    const loadAbsences = async () => {
-      const res = await fetchApi('/api/absences');
-      setAbsences(await res.json());
-    };
     loadAbsences();
   }, [fetchApi]);
+
+  const handleSaveJustification = async () => {
+    if (!selectedAbsence) return;
+    setSaving(true);
+    try {
+      if (justificationType === '') {
+        await fetchApi('/api/absences/justification', {
+          method: 'DELETE',
+          body: JSON.stringify({
+            member_id: selectedAbsence.member_id,
+            date: selectedAbsence.date,
+            tournament_type: selectedAbsence.tournament_type
+          })
+        });
+      } else {
+        await fetchApi('/api/absences/justification', {
+          method: 'POST',
+          body: JSON.stringify({
+            member_id: selectedAbsence.member_id,
+            date: selectedAbsence.date,
+            tournament_type: selectedAbsence.tournament_type,
+            type: justificationType,
+            note: justificationNote
+          })
+        });
+      }
+      await loadAbsences();
+      setSelectedAbsence(null);
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    if (!dateString) return '-';
+    const parts = dateString.split('-');
+    if (parts.length !== 3) return dateString;
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  };
+
+  const getTournamentName = (type: string) => {
+    switch (type) {
+      case 'guerra_total': return 'Guerra Total';
+      case 'torneio_celeste': return 'Torneio Celeste';
+      case 'pico_gloria': return 'Pico de Glória';
+      default: return type;
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -43,32 +98,83 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
             O sistema verifica automaticamente se um membro participou dos torneios registrados.
             Membros que não aparecem nos registros de um dia de torneio recebem uma falta.
           </p>
+          <div className="mt-4 flex flex-wrap gap-4 text-xs">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+              <span className="text-zinc-300">Injustificada</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
+              <span className="text-zinc-300">Em Observação</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-emerald-500 rounded-full"></div>
+              <span className="text-zinc-300">Abonada</span>
+            </div>
+          </div>
         </div>
         <table className="w-full text-left text-sm text-zinc-400">
           <thead className="bg-zinc-950/50 text-zinc-300">
             <tr>
               <th className="px-6 py-4 font-medium">Nick</th>
-              <th className="px-6 py-4 font-medium">Total de Faltas</th>
+              <th className="px-6 py-4 font-medium">Resumo de Faltas</th>
+              <th className="px-6 py-4 font-medium">Datas das Faltas</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800">
             {absences.filter(a => activeTab === 'ativos' ? a.status === 'ativo' : a.status === 'inativo').map((item, i) => (
-              <tr key={i} className="hover:bg-zinc-800/50">
+              <tr key={i} className="hover:bg-zinc-800/50 align-top">
                 <td className="px-6 py-4 font-medium text-white">{item.nick}</td>
                 <td className="px-6 py-4">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    item.absences > 3 ? 'bg-red-500/20 text-red-400' : 
-                    item.absences > 1 ? 'bg-yellow-500/20 text-yellow-400' : 
-                    'bg-zinc-800 text-zinc-300'
-                  }`}>
-                    {item.absences} {item.absences === 1 ? 'falta' : 'faltas'}
-                  </span>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-xs text-zinc-500">Total:</span>
+                      <span className="font-bold text-white">{item.totals.total}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-xs text-zinc-500">Injustificadas:</span>
+                      <span className="text-red-400 font-medium">{item.totals.injustificada}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-xs text-zinc-500">Em Observação:</span>
+                      <span className="text-orange-400 font-medium">{item.totals.observacao}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-xs text-zinc-500">Abonadas:</span>
+                      <span className="text-emerald-400 font-medium">{item.totals.abonado}</span>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-6 py-4">
+                  <div className="flex flex-wrap gap-2">
+                    {item.missedDates.map((miss: any, idx: number) => {
+                      const type = miss.justification?.type;
+                      let bgColor = 'bg-red-500/20 border-red-500/50 text-red-400';
+                      if (type === 'Abonado') bgColor = 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400';
+                      if (type === 'Em Observação') bgColor = 'bg-orange-500/20 border-orange-500/50 text-orange-400';
+
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            setSelectedAbsence({ ...miss, member_id: item.member_id, nick: item.nick });
+                            setJustificationType(miss.justification?.type || '');
+                            setJustificationNote(miss.justification?.note || '');
+                          }}
+                          className={`px-2 py-1 rounded border text-[10px] font-medium transition-all hover:scale-105 ${bgColor}`}
+                          title={`${getTournamentName(miss.tournament_type)}${miss.justification?.note ? `: ${miss.justification.note}` : ''}`}
+                        >
+                          {formatDate(miss.date)}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </td>
               </tr>
             ))}
             {absences.filter(a => activeTab === 'ativos' ? a.status === 'ativo' : a.status === 'inativo').length === 0 && (
               <tr>
-                <td colSpan={2} className="px-6 py-8 text-center text-zinc-500">
+                <td colSpan={3} className="px-6 py-8 text-center text-zinc-500">
                   Nenhuma falta registrada para membros {activeTab}.
                 </td>
               </tr>
@@ -76,6 +182,92 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
           </tbody>
         </table>
       </div>
+
+      {selectedAbsence && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+            <div className="p-6 border-b border-zinc-800 flex justify-between items-center">
+              <div>
+                <h2 className="text-xl font-bold text-white">Justificar Falta</h2>
+                <p className="text-xs text-zinc-400">{selectedAbsence.nick} - {formatDate(selectedAbsence.date)}</p>
+              </div>
+              <button onClick={() => setSelectedAbsence(null)} className="text-zinc-400 hover:text-white">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-zinc-400 mb-2">Torneio</label>
+                <div className="bg-zinc-800 p-3 rounded-lg text-white text-sm">
+                  {getTournamentName(selectedAbsence.tournament_type)}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-zinc-400 mb-2">Tipo de Justificativa</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    onClick={() => setJustificationType('')}
+                    className={`px-3 py-2 rounded-lg text-xs font-medium transition-all border ${
+                      justificationType === '' ? 'bg-zinc-700 border-zinc-500 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-500'
+                    }`}
+                  >
+                    Nenhuma
+                  </button>
+                  <button
+                    onClick={() => setJustificationType('Abonado')}
+                    className={`px-3 py-2 rounded-lg text-xs font-medium transition-all border ${
+                      justificationType === 'Abonado' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-zinc-800 border-zinc-700 text-zinc-500'
+                    }`}
+                  >
+                    Abonado
+                  </button>
+                  <button
+                    onClick={() => setJustificationType('Em Observação')}
+                    className={`px-3 py-2 rounded-lg text-xs font-medium transition-all border ${
+                      justificationType === 'Em Observação' ? 'bg-orange-500/20 border-orange-500 text-orange-400' : 'bg-zinc-800 border-zinc-700 text-zinc-500'
+                    }`}
+                  >
+                    Em Obs.
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-zinc-400 mb-2">Observação (Opcional)</label>
+                <textarea
+                  value={justificationNote}
+                  onChange={(e) => setJustificationNote(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm h-24 focus:ring-2 focus:ring-emerald-500 outline-none"
+                  placeholder="Motivo da falta..."
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={() => setSelectedAbsence(null)}
+                  className="flex-1 px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSaveJustification}
+                  disabled={saving}
+                  className="flex-1 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors flex items-center justify-center gap-2"
+                >
+                  {saving ? 'Salvando...' : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Salvar
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

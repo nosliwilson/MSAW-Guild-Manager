@@ -111,6 +111,18 @@ const checkAndFixDatabase = () => {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
+
+    CREATE TABLE IF NOT EXISTS absence_justifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      member_id INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      tournament_type TEXT NOT NULL,
+      type TEXT NOT NULL, -- 'Abonado' or 'Em Observação'
+      note TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(member_id, date, tournament_type),
+      FOREIGN KEY (member_id) REFERENCES members(id)
+    );
   `);
 
   // Ensure specific columns exist
@@ -696,29 +708,75 @@ app.get('/api/absences', authenticateToken, (req, res) => {
   const datesTC = db.prepare('SELECT DISTINCT date FROM torneio_celeste').all() as any[];
   const datesPG = db.prepare('SELECT DISTINCT date FROM pico_gloria').all() as any[];
   
+  // Get all justifications
+  const allJustifications = db.prepare('SELECT * FROM absence_justifications').all() as any[];
+  
   const absences = allMembers.map(m => {
-    let missed = 0;
+    const missedDates: { date: string, tournament_type: string, justification?: any }[] = [];
     
-    for (const d of datesGT) {
-      if (d.date < m.entry_date) continue;
-      const participated = db.prepare('SELECT 1 FROM guerra_total WHERE member_id = ? AND date = ?').get(m.id, d.date);
-      if (!participated) missed++;
-    }
-    for (const d of datesTC) {
-      if (d.date < m.entry_date) continue;
-      const participated = db.prepare('SELECT 1 FROM torneio_celeste WHERE member_id = ? AND date = ?').get(m.id, d.date);
-      if (!participated) missed++;
-    }
-    for (const d of datesPG) {
-      if (d.date < m.entry_date) continue;
-      const participated = db.prepare('SELECT 1 FROM pico_gloria WHERE member_id = ? AND date = ?').get(m.id, d.date);
-      if (!participated) missed++;
-    }
+    const checkMissed = (dates: any[], tournamentType: string, table: string) => {
+      for (const d of dates) {
+        if (d.date < m.entry_date) continue;
+        const participated = db.prepare(`SELECT 1 FROM ${table} WHERE member_id = ? AND date = ?`).get(m.id, d.date);
+        if (!participated) {
+          const justification = allJustifications.find(j => j.member_id === m.id && j.date === d.date && j.tournament_type === tournamentType);
+          missedDates.push({ date: d.date, tournament_type: tournamentType, justification });
+        }
+      }
+    };
+
+    checkMissed(datesGT, 'guerra_total', 'guerra_total');
+    checkMissed(datesTC, 'torneio_celeste', 'torneio_celeste');
+    checkMissed(datesPG, 'pico_gloria', 'pico_gloria');
     
-    return { nick: m.nick, status: m.status, absences: missed };
+    const totals = {
+      total: missedDates.length,
+      abonado: missedDates.filter(d => d.justification?.type === 'Abonado').length,
+      observacao: missedDates.filter(d => d.justification?.type === 'Em Observação').length,
+      injustificada: missedDates.filter(d => !d.justification).length
+    };
+    
+    return { 
+      member_id: m.id,
+      nick: m.nick, 
+      status: m.status, 
+      absences: totals.total,
+      totals,
+      missedDates: missedDates.sort((a, b) => b.date.localeCompare(a.date))
+    };
   });
   
   res.json(absences.filter(a => a.absences > 0).sort((a, b) => b.absences - a.absences));
+});
+
+app.post('/api/absences/justification', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  const { member_id, date, tournament_type, type, note } = req.body;
+  
+  try {
+    db.prepare(`
+      INSERT INTO absence_justifications (member_id, date, tournament_type, type, note)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(member_id, date, tournament_type) DO UPDATE SET
+        type = excluded.type,
+        note = excluded.note
+    `).run(member_id, date, tournament_type, type, note);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/absences/justification', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  const { member_id, date, tournament_type } = req.body;
+  
+  try {
+    db.prepare('DELETE FROM absence_justifications WHERE member_id = ? AND date = ? AND tournament_type = ?').run(member_id, date, tournament_type);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 async function startServer() {
