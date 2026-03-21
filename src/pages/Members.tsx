@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, ShieldAlert, Upload, Info, Trash2, X } from 'lucide-react';
+import { sortMembers } from '../utils/sorting';
+import ImportModal from '../components/ImportModal';
 
 export default function Members({ fetchApi }: { fetchApi: any }) {
   const [members, setMembers] = useState<any[]>([]);
@@ -16,6 +18,7 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
   const [roles, setRoles] = useState<any[]>([]);
   const [newRole, setNewRole] = useState('Membro');
   const [newRoleDate, setNewRoleDate] = useState(new Date().toISOString().split('T')[0]);
+  const [importPreview, setImportPreview] = useState<{ results: any[], unknownNicks: string[] } | null>(null);
 
   const loadMembers = async () => {
     const res = await fetchApi('/api/members');
@@ -49,9 +52,31 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
     formData.append('file', e.target.files[0]);
     
     try {
-      await fetchApi('/api/upload/members', {
+      const res = await fetchApi('/api/upload/members/preview', {
         method: 'POST',
         body: formData
+      });
+      const preview = await res.json();
+      
+      if (preview.unknownNicks.length > 0) {
+        setImportPreview(preview);
+      } else {
+        await finalizeImport(preview.results);
+      }
+    } catch (err: any) {
+      alert(err.message);
+      setUploading(false);
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const finalizeImport = async (results: any[], mappings?: Record<string, any>) => {
+    setUploading(true);
+    try {
+      await fetchApi('/api/upload/members', {
+        method: 'POST',
+        body: JSON.stringify({ results, mappings })
       });
       loadMembers();
       alert('Importação concluída com sucesso!');
@@ -59,7 +84,7 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
       alert(err.message);
     } finally {
       setUploading(false);
-      e.target.value = '';
+      setImportPreview(null);
     }
   };
 
@@ -125,6 +150,17 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
+        {importPreview && (
+          <ImportModal
+            unknownNicks={importPreview.unknownNicks}
+            members={members}
+            onConfirm={(mappings) => finalizeImport(importPreview.results, mappings)}
+            onCancel={() => {
+              setImportPreview(null);
+              setUploading(false);
+            }}
+          />
+        )}
         <h1 className="text-2xl font-bold text-white">Membros</h1>
         <div className="flex items-center gap-4">
           <div className="relative group">
@@ -217,7 +253,10 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800">
-            {members.filter(m => activeTab === 'ativos' ? m.status === 'ativo' : m.status === 'inativo').map(m => (
+            {members
+              .filter(m => activeTab === 'ativos' ? m.status === 'ativo' : m.status === 'inativo')
+              .sort(sortMembers)
+              .map(m => (
               <tr key={m.id} className="hover:bg-zinc-800/50">
                 <td className="px-6 py-4 font-medium text-white">{m.nick}</td>
                 <td className="px-6 py-4 text-emerald-400">{m.role || 'Membro'}</td>

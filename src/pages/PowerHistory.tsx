@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Download, Info, Trash2, TrendingUp, TrendingDown } from 'lucide-react';
+import { Upload, Download, Info, Trash2, TrendingUp, TrendingDown, ArrowUpDown } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { sortMembers } from '../utils/sorting';
+import ImportModal from '../components/ImportModal';
 
 export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
   const [history, setHistory] = useState<any[]>([]);
@@ -13,6 +15,14 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
   const [compareStart, setCompareStart] = useState('');
   const [compareEnd, setCompareEnd] = useState('');
   const [compareData, setCompareData] = useState<any[]>([]);
+  const [sortBy, setSortBy] = useState<'cargo' | 'poder'>('cargo');
+  const [importPreview, setImportPreview] = useState<{ results: any[], unknownNicks: string[] } | null>(null);
+  const [members, setMembers] = useState<any[]>([]);
+
+  const loadMembers = async () => {
+    const res = await fetchApi('/api/members');
+    setMembers(await res.json());
+  };
 
   const loadHistory = async () => {
     const res = await fetchApi('/api/power');
@@ -32,6 +42,7 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
 
   useEffect(() => {
     loadHistory();
+    loadMembers();
   }, [fetchApi]);
 
   useEffect(() => {
@@ -48,9 +59,31 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
     formData.append('file', e.target.files[0]);
     
     try {
-      await fetchApi('/api/upload/power', {
+      const res = await fetchApi('/api/upload/power/preview', {
         method: 'POST',
         body: formData
+      });
+      const preview = await res.json();
+      
+      if (preview.unknownNicks.length > 0) {
+        setImportPreview(preview);
+      } else {
+        await finalizeImport(preview.results);
+      }
+    } catch (err: any) {
+      alert(err.message);
+      setUploading(false);
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const finalizeImport = async (results: any[], mappings?: Record<string, any>) => {
+    setUploading(true);
+    try {
+      await fetchApi('/api/upload/power', {
+        method: 'POST',
+        body: JSON.stringify({ results, mappings })
       });
       loadHistory();
       alert('Importação concluída com sucesso!');
@@ -58,7 +91,7 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
       alert(err.message);
     } finally {
       setUploading(false);
-      e.target.value = '';
+      setImportPreview(null);
     }
   };
 
@@ -81,6 +114,17 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
   const uniqueNicks = Array.from(new Set(history.filter(h => (statusTab === 'ativos' ? h.status === 'ativo' : h.status === 'inativo') && (selectedRole === 'all' || (h.role || 'Membro') === selectedRole)).map(h => h.nick))).sort();
   const uniqueDates = Array.from(new Set(history.filter(h => statusTab === 'ativos' ? h.status === 'ativo' : h.status === 'inativo').map(h => h.date))).sort((a, b) => (b as string).localeCompare(a as string));
   const uniqueRoles = Array.from(new Set(history.filter(h => statusTab === 'ativos' ? h.status === 'ativo' : h.status === 'inativo').map(h => h.role || 'Membro'))).sort();
+
+  const getSortedHistory = () => {
+    const filtered = history
+      .filter(h => (statusTab === 'ativos' ? h.status === 'ativo' : h.status === 'inativo'))
+      .filter(h => (selectedNick === 'all' || h.nick === selectedNick) && (selectedDate === 'all' || h.date === selectedDate) && (selectedRole === 'all' || (h.role || 'Membro') === selectedRole));
+
+    if (sortBy === 'poder') {
+      return filtered.sort((a, b) => Number(b.power) - Number(a.power));
+    }
+    return filtered.sort(sortMembers);
+  };
 
   // Prepare chart data
   const chartData = history
@@ -168,9 +212,31 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
 
       {activeTab === 'historico' ? (
         <>
+          {importPreview && (
+            <ImportModal
+              unknownNicks={importPreview.unknownNicks}
+              members={members}
+              onConfirm={(mappings) => finalizeImport(importPreview.results, mappings)}
+              onCancel={() => {
+                setImportPreview(null);
+                setUploading(false);
+              }}
+            />
+          )}
           <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800">
-        <div className="mb-6 flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-2">
+          <div className="mb-6 flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-zinc-400">Ordenar por:</label>
+              <select
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value as any)}
+                className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
+              >
+                <option value="cargo">Cargo (Padrão)</option>
+                <option value="poder">Poder (Maior para Menor)</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
             <label className="text-sm text-zinc-400">Filtrar por Cargo:</label>
             <select
               value={selectedRole}
@@ -277,8 +343,8 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800">
-                {history.filter(h => (statusTab === 'ativos' ? h.status === 'ativo' : h.status === 'inativo') && (selectedNick === 'all' || h.nick === selectedNick) && (selectedDate === 'all' || h.date === selectedDate) && (selectedRole === 'all' || (h.role || 'Membro') === selectedRole)).map(h => (
-                  <tr key={h.id} className="hover:bg-zinc-800/50">
+                {getSortedHistory().map((h, i) => (
+                  <tr key={i} className="hover:bg-zinc-800/50">
                     <td className="px-6 py-4">{formatDate(h.date)}</td>
                     <td className="px-6 py-4 font-medium text-white">{h.nick}</td>
                     <td className="px-6 py-4 text-emerald-400">{h.role || 'Membro'}</td>

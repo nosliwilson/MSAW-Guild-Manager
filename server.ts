@@ -539,84 +539,120 @@ function parseDateStr(d: string | undefined | null, fallback: string) {
   return d;
 }
 
-app.post('/api/upload/:type', authenticateToken, upload.single('file'), (req: any, res) => {
+app.post('/api/upload/:type/preview', authenticateToken, upload.single('file'), (req: any, res) => {
   if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
   
-  const type = req.params.type;
   const results: any[] = [];
-  
   fs.createReadStream(req.file.path)
     .pipe(parse({ columns: true, trim: true, bom: true, delimiter: [',', ';'] }))
     .on('data', (data) => results.push(data))
     .on('end', () => {
-      fs.unlinkSync(req.file!.path); // Clean up
+      fs.unlinkSync(req.file!.path);
       
-      try {
-        const insertMember = db.prepare('INSERT OR IGNORE INTO members (nick, entry_date, import_id) VALUES (?, ?, ?)');
-        const getMember = db.prepare('SELECT id FROM members WHERE nick = ?');
-        
-        if (results.length === 0) {
-          return res.status(400).json({ error: 'O arquivo CSV está vazio ou não pôde ser lido corretamente. Verifique as colunas (Nick, Poder, Data, etc).' });
+      const unknownNicks = new Set<string>();
+      const getMember = db.prepare('SELECT id FROM members WHERE nick = ?');
+      
+      for (const row of results) {
+        const nick = row.Nick || row.nick || row.NICK;
+        if (nick && !getMember.get(nick)) {
+          unknownNicks.add(nick);
         }
-        
-        let importedCount = 0;
-        db.transaction(() => {
-          const importDate = new Date().toISOString().split('T')[0];
-          const importResult = db.prepare('INSERT INTO imports (user_id, type, date) VALUES (?, ?, ?)').run(req.user.id, type, importDate);
-          const importId = importResult.lastInsertRowid;
+      }
+      
+      res.json({ 
+        results, 
+        unknownNicks: Array.from(unknownNicks)
+      });
+    });
+});
 
-          for (const row of results) {
-            // Ensure member exists
-            const nick = row.Nick || row.nick || row.NICK;
-            if (!nick) continue;
-            
+app.post('/api/upload/:type', authenticateToken, (req: any, res) => {
+  const type = req.params.type;
+  const { results, mappings } = req.body;
+  
+  if (!results || !Array.isArray(results)) {
+    return res.status(400).json({ error: 'Dados inválidos' });
+  }
+  
+  try {
+    const insertMember = db.prepare('INSERT OR IGNORE INTO members (nick, entry_date, import_id) VALUES (?, ?, ?)');
+    const getMember = db.prepare('SELECT id FROM members WHERE nick = ?');
+    
+    let importedCount = 0;
+    db.transaction(() => {
+      const importDate = new Date().toISOString().split('T')[0];
+      const importResult = db.prepare('INSERT INTO imports (user_id, type, date) VALUES (?, ?, ?)').run(req.user.id, type, importDate);
+      const importId = importResult.lastInsertRowid;
+
+      for (const row of results) {
+        const nick = row.Nick || row.nick || row.NICK;
+        if (!nick) continue;
+        
+        const mapping = mappings ? mappings[nick] : null;
+        let memberId: number | null = null;
+
+        if (mapping) {
+          if (mapping.action === 'ignore') continue;
+          if (mapping.action === 'associate') {
+            memberId = mapping.memberId;
+          } else if (mapping.action === 'new') {
             const rawDate = row.Date || row.date || row.Data || row.data || row.DATA;
             const entryDate = parseDateStr(rawDate, importDate);
             insertMember.run(nick, entryDate, importId);
             const member = getMember.get(nick) as any;
-            if (!member) continue;
-            
-            if (type === 'members') {
-              // Just importing members, nothing else to insert
-            } else if (type === 'power') {
-              db.prepare('INSERT INTO power_history (member_id, power, date, import_id) VALUES (?, ?, ?, ?)').run(
-                member.id, row.Power || row.power || row.Poder || row.poder || row.PODER, entryDate, importId
-              );
-            } else if (type === 'guerra_total') {
-              db.prepare('INSERT INTO guerra_total (member_id, power, date, import_id) VALUES (?, ?, ?, ?)').run(
-                member.id, row.Power || row.power || row.Poder || row.poder || row.PODER, entryDate, importId
-              );
-            } else if (type === 'torneio_celeste') {
-              db.prepare('INSERT INTO torneio_celeste (member_id, guild, score, field, date, import_id) VALUES (?, ?, ?, ?, ?, ?)').run(
-                member.id, row.Guild || row.guild || row.GUILD, row.Score || row.score || row.Pontuacao || row.pontuacao || row.PONTUACAO, row.Field || row.field || row.Campo || row.campo || row.CAMPO, entryDate, importId
-              );
-            } else if (type === 'pico_gloria') {
-              const team = row.Team || row.team || row.Time || row.time || row.TIME || 'Livre';
-              db.prepare('INSERT INTO pico_gloria (member_id, round, score, team, date, import_id) VALUES (?, ?, ?, ?, ?, ?)').run(
-                member.id, row.Round || row.round || row.Rodada || row.rodada || row.RODADA, row.Score || row.score || row.Pontuacao || row.pontuacao || row.PONTUACAO, team, entryDate, importId
-              );
-            } else if (type === 'fenda') {
-              const seasonRow = db.prepare("SELECT value FROM settings WHERE key = 'fenda_season'").get() as any;
-              const season = parseInt(seasonRow?.value || '1', 10);
-              const crystals = row.Crystals || row.crystals || row.Cristais || row.cristais || row.CRISTAIS;
-              if (crystals) {
-                db.prepare('INSERT INTO fenda_history (member_id, crystals, date, season, import_id) VALUES (?, ?, ?, ?, ?)').run(
-                  member.id, crystals, entryDate, season, importId
-                );
-              }
-            }
-            importedCount++;
+            memberId = member?.id;
           }
-        })();
-        
-        if (importedCount === 0) {
-          return res.status(400).json({ error: 'Nenhuma linha válida encontrada. Certifique-se de que a coluna "Nick" existe.' });
+        } else {
+          // Default behavior: ensure member exists
+          const rawDate = row.Date || row.date || row.Data || row.data || row.DATA;
+          const entryDate = parseDateStr(rawDate, importDate);
+          insertMember.run(nick, entryDate, importId);
+          const member = getMember.get(nick) as any;
+          memberId = member?.id;
         }
-        res.json({ success: true, count: importedCount });
-      } catch (e: any) {
-        res.status(500).json({ error: 'Erro ao processar CSV: ' + e.message });
+
+        if (!memberId) continue;
+        
+        const rawDate = row.Date || row.date || row.Data || row.data || row.DATA;
+        const entryDate = parseDateStr(rawDate, importDate);
+
+        if (type === 'members') {
+          // Just members
+        } else if (type === 'power') {
+          db.prepare('INSERT INTO power_history (member_id, power, date, import_id) VALUES (?, ?, ?, ?)').run(
+            memberId, row.Power || row.power || row.Poder || row.poder || row.PODER, entryDate, importId
+          );
+        } else if (type === 'guerra_total') {
+          db.prepare('INSERT INTO guerra_total (member_id, power, date, import_id) VALUES (?, ?, ?, ?)').run(
+            memberId, row.Power || row.power || row.Poder || row.poder || row.PODER, entryDate, importId
+          );
+        } else if (type === 'torneio_celeste') {
+          db.prepare('INSERT INTO torneio_celeste (member_id, guild, score, field, date, import_id) VALUES (?, ?, ?, ?, ?, ?)').run(
+            memberId, row.Guild || row.guild || row.GUILD, row.Score || row.score || row.Pontuacao || row.pontuacao || row.PONTUACAO, row.Field || row.field || row.Campo || row.campo || row.CAMPO, entryDate, importId
+          );
+        } else if (type === 'pico_gloria') {
+          const team = row.Team || row.team || row.Time || row.time || row.TIME || 'Livre';
+          db.prepare('INSERT INTO pico_gloria (member_id, round, score, team, date, import_id) VALUES (?, ?, ?, ?, ?, ?)').run(
+            memberId, row.Round || row.round || row.Rodada || row.rodada || row.RODADA, row.Score || row.score || row.Pontuacao || row.pontuacao || row.PONTUACAO, team, entryDate, importId
+          );
+        } else if (type === 'fenda') {
+          const seasonRow = db.prepare("SELECT value FROM settings WHERE key = 'fenda_season'").get() as any;
+          const season = parseInt(seasonRow?.value || '1', 10);
+          const crystals = row.Crystals || row.crystals || row.Cristais || row.cristais || row.CRISTAIS;
+          if (crystals) {
+            db.prepare('INSERT INTO fenda_history (member_id, crystals, date, season, import_id) VALUES (?, ?, ?, ?, ?)').run(
+              memberId, crystals, entryDate, season, importId
+            );
+          }
+        }
+        importedCount++;
       }
-    });
+    })();
+    
+    res.json({ success: true, count: importedCount });
+  } catch (e: any) {
+    res.status(500).json({ error: 'Erro ao processar importação: ' + e.message });
+  }
 });
 
 // Imports History

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, Gem, Info, AlertTriangle, Trash2, RotateCcw, TrendingUp, TrendingDown } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { sortMembers } from '../utils/sorting';
+import ImportModal from '../components/ImportModal';
 
 export default function Fenda({ fetchApi }: { fetchApi: any }) {
   const [data, setData] = useState<any[]>([]);
@@ -15,6 +17,13 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
   const [compareData, setCompareData] = useState<any[]>([]);
   const [closeDate, setCloseDate] = useState<string>('');
   const [seasonsData, setSeasonsData] = useState<any[]>([]);
+  const [importPreview, setImportPreview] = useState<{ results: any[], unknownNicks: string[] } | null>(null);
+  const [members, setMembers] = useState<any[]>([]);
+
+  const loadMembers = async () => {
+    const res = await fetchApi('/api/members');
+    setMembers(await res.json());
+  };
 
   const loadData = async () => {
     const res = await fetchApi('/api/fenda');
@@ -41,6 +50,7 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
 
   useEffect(() => {
     loadData();
+    loadMembers();
   }, [fetchApi]);
 
   useEffect(() => {
@@ -59,9 +69,31 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
     formData.append('file', e.target.files[0]);
     
     try {
-      await fetchApi('/api/upload/fenda', {
+      const res = await fetchApi('/api/upload/fenda/preview', {
         method: 'POST',
         body: formData
+      });
+      const preview = await res.json();
+      
+      if (preview.unknownNicks.length > 0) {
+        setImportPreview(preview);
+      } else {
+        await finalizeImport(preview.results);
+      }
+    } catch (err: any) {
+      alert(err.message);
+      setUploading(false);
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const finalizeImport = async (results: any[], mappings?: Record<string, any>) => {
+    setUploading(true);
+    try {
+      await fetchApi('/api/upload/fenda', {
+        method: 'POST',
+        body: JSON.stringify({ results, mappings })
       });
       loadData();
       alert('Importação concluída com sucesso!');
@@ -69,7 +101,7 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
       alert(err.message);
     } finally {
       setUploading(false);
-      e.target.value = '';
+      setImportPreview(null);
     }
   };
 
@@ -134,6 +166,17 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
+        {importPreview && (
+          <ImportModal
+            unknownNicks={importPreview.unknownNicks}
+            members={members}
+            onConfirm={(mappings) => finalizeImport(importPreview.results, mappings)}
+            onCancel={() => {
+              setImportPreview(null);
+              setUploading(false);
+            }}
+          />
+        )}
         <h1 className="text-2xl font-bold text-white flex items-center gap-2">
           <Gem className="w-6 h-6 text-emerald-400" />
           Fenda (Temporada {season})
