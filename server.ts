@@ -265,7 +265,8 @@ app.delete('/api/users/:id', authenticateToken, (req: any, res) => {
 app.get('/api/members', authenticateToken, (req, res) => {
   const members = db.prepare(`
     SELECT m.*, 
-           COALESCE((SELECT role FROM member_roles WHERE member_id = m.id AND end_date IS NULL ORDER BY start_date DESC LIMIT 1), 'Membro') as role
+           COALESCE((SELECT role FROM member_roles WHERE member_id = m.id AND end_date IS NULL ORDER BY start_date DESC LIMIT 1), 'Membro') as role,
+           COALESCE((SELECT power FROM power_history WHERE member_id = m.id ORDER BY date DESC LIMIT 1), 0) as power
     FROM members m
   `).all();
   res.json(members);

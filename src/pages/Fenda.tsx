@@ -207,7 +207,7 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
       return {
         ...item,
         role: member?.role || 'Membro',
-        power: member?.power || 0
+        current_power: member?.power || 0
       };
     });
 
