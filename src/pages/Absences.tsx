@@ -3,6 +3,7 @@ import { CalendarX } from 'lucide-react';
 
 export default function Absences({ fetchApi }: { fetchApi: any }) {
   const [absences, setAbsences] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'ativos' | 'inativos'>('ativos');
 
   useEffect(() => {
     const loadAbsences = async () => {
@@ -21,10 +22,25 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
         </h1>
       </div>
 
+      <div className="flex gap-2 border-b border-zinc-800 pb-4">
+        <button
+          onClick={() => setActiveTab('ativos')}
+          className={`px-4 py-2 rounded-lg transition-colors ${activeTab === 'ativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+        >
+          Ativos
+        </button>
+        <button
+          onClick={() => setActiveTab('inativos')}
+          className={`px-4 py-2 rounded-lg transition-colors ${activeTab === 'inativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+        >
+          Arquivo Morto (Inativos)
+        </button>
+      </div>
+
       <div className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden">
         <div className="p-4 border-b border-zinc-800 bg-zinc-950/50">
           <p className="text-sm text-zinc-400">
-            O sistema verifica automaticamente se um membro ativo participou dos torneios registrados.
+            O sistema verifica automaticamente se um membro participou dos torneios registrados.
             Membros que não aparecem nos registros de um dia de torneio recebem uma falta.
           </p>
         </div>
@@ -36,7 +52,7 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800">
-            {absences.map((item, i) => (
+            {absences.filter(a => activeTab === 'ativos' ? a.status === 'ativo' : a.status === 'inativo').map((item, i) => (
               <tr key={i} className="hover:bg-zinc-800/50">
                 <td className="px-6 py-4 font-medium text-white">{item.nick}</td>
                 <td className="px-6 py-4">
@@ -50,10 +66,10 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
                 </td>
               </tr>
             ))}
-            {absences.length === 0 && (
+            {absences.filter(a => activeTab === 'ativos' ? a.status === 'ativo' : a.status === 'inativo').length === 0 && (
               <tr>
                 <td colSpan={2} className="px-6 py-8 text-center text-zinc-500">
-                  Nenhuma falta registrada para membros ativos.
+                  Nenhuma falta registrada para membros {activeTab}.
                 </td>
               </tr>
             )}

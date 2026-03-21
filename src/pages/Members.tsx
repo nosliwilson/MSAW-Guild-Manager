@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, ShieldAlert, Upload, Info, Trash2 } from 'lucide-react';
+import { Plus, Edit2, ShieldAlert, Upload, Info, Trash2, X } from 'lucide-react';
 
 export default function Members({ fetchApi }: { fetchApi: any }) {
   const [members, setMembers] = useState<any[]>([]);
@@ -7,6 +7,10 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
   const [newNick, setNewNick] = useState('');
   const [newDate, setNewDate] = useState(new Date().toISOString().split('T')[0]);
   const [uploading, setUploading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'ativos' | 'inativos'>('ativos');
+  const [showExitModal, setShowExitModal] = useState(false);
+  const [memberToDeactivate, setMemberToDeactivate] = useState<any>(null);
+  const [exitDate, setExitDate] = useState(new Date().toISOString().split('T')[0]);
   
   const [selectedMember, setSelectedMember] = useState<any>(null);
   const [roles, setRoles] = useState<any[]>([]);
@@ -59,12 +63,29 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
     }
   };
 
-  const handleStatusChange = async (id: number, status: string) => {
-    const exit_date = status === 'inativo' ? new Date().toISOString().split('T')[0] : null;
-    await fetchApi(`/api/members/${id}`, {
+  const handleStatusChange = async (member: any, status: string) => {
+    if (status === 'inativo') {
+      setMemberToDeactivate(member);
+      setExitDate(new Date().toISOString().split('T')[0]);
+      setShowExitModal(true);
+      return;
+    }
+    
+    await fetchApi(`/api/members/${member.id}`, {
       method: 'PUT',
-      body: JSON.stringify({ status, exit_date })
+      body: JSON.stringify({ status, exit_date: null })
     });
+    loadMembers();
+  };
+
+  const confirmDeactivation = async () => {
+    if (!memberToDeactivate) return;
+    await fetchApi(`/api/members/${memberToDeactivate.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ status: 'inativo', exit_date: exitDate })
+    });
+    setShowExitModal(false);
+    setMemberToDeactivate(null);
     loadMembers();
   };
 
@@ -91,6 +112,13 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
     } catch (e: any) {
       alert(e.message);
     }
+  };
+
+  const formatDate = (dateString: string) => {
+    if (!dateString) return '-';
+    const parts = dateString.split('-');
+    if (parts.length !== 3) return dateString;
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
   };
 
   return (
@@ -129,6 +157,21 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
             Novo Membro
           </button>
         </div>
+      </div>
+
+      <div className="flex gap-2 border-b border-zinc-800 pb-4">
+        <button
+          onClick={() => setActiveTab('ativos')}
+          className={`px-4 py-2 rounded-lg transition-colors ${activeTab === 'ativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+        >
+          Ativos
+        </button>
+        <button
+          onClick={() => setActiveTab('inativos')}
+          className={`px-4 py-2 rounded-lg transition-colors ${activeTab === 'inativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+        >
+          Arquivo Morto (Inativos)
+        </button>
       </div>
 
       {showAdd && (
@@ -172,21 +215,21 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800">
-            {members.map(m => (
+            {members.filter(m => activeTab === 'ativos' ? m.status === 'ativo' : m.status === 'inativo').map(m => (
               <tr key={m.id} className="hover:bg-zinc-800/50">
                 <td className="px-6 py-4 font-medium text-white">{m.nick}</td>
                 <td className="px-6 py-4">
                   <select
                     value={m.status}
-                    onChange={(e) => handleStatusChange(m.id, e.target.value)}
+                    onChange={(e) => handleStatusChange(m, e.target.value)}
                     className="bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-sm"
                   >
                     <option value="ativo">Ativo</option>
                     <option value="inativo">Inativo</option>
                   </select>
                 </td>
-                <td className="px-6 py-4">{m.entry_date}</td>
-                <td className="px-6 py-4">{m.exit_date || '-'}</td>
+                <td className="px-6 py-4">{formatDate(m.entry_date)}</td>
+                <td className="px-6 py-4">{formatDate(m.exit_date)}</td>
                 <td className="px-6 py-4 flex gap-3">
                   <button
                     onClick={() => loadRoles(m)}
@@ -208,6 +251,42 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
           </tbody>
         </table>
       </div>
+
+      {showExitModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-white">Inativar Membro</h2>
+              <button onClick={() => setShowExitModal(false)} className="text-zinc-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-zinc-400 mb-4">
+              Selecione a data de saída para <strong className="text-white">{memberToDeactivate?.nick}</strong>:
+            </p>
+            <input
+              type="date"
+              value={exitDate}
+              onChange={e => setExitDate(e.target.value)}
+              className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white mb-6"
+            />
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowExitModal(false)}
+                className="px-4 py-2 text-zinc-400 hover:text-white transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmDeactivation}
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
+              >
+                Confirmar Inativação
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {selectedMember && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">

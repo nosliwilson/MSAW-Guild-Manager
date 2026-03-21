@@ -64,7 +64,7 @@ export default function ImportsHistory({ fetchApi, user }: { fetchApi: any, user
                 <td className="px-6 py-4 font-medium text-white">{formatType(imp.type)}</td>
                 <td className="px-6 py-4">{imp.username}</td>
                 <td className="px-6 py-4">
-                  {user.role === 'admin' && imp.type !== 'members' && (
+                  {user.role === 'admin' && (
                     <button
                       onClick={() => handleDelete(imp.id)}
                       className="text-zinc-400 hover:text-red-400 flex items-center gap-1"

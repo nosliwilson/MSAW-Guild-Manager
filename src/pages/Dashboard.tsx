@@ -30,10 +30,10 @@ export default function Dashboard({ fetchApi }: { fetchApi: any }) {
 
         const active = members.filter((m: any) => m.status === 'ativo').length;
         
-        // Get latest power for each member
+        // Get latest power for each active member
         const latestPowerMap = new Map();
         power.forEach((p: any) => {
-          if (!latestPowerMap.has(p.member_id)) {
+          if (p.status === 'ativo' && !latestPowerMap.has(p.member_id)) {
             latestPowerMap.set(p.member_id, p.power);
           }
         });
@@ -42,8 +42,8 @@ export default function Dashboard({ fetchApi }: { fetchApi: any }) {
         setStats({
           activeMembers: active,
           totalPower,
-          tournaments: gt.length + tc.length + pg.length,
-          absences: absences.reduce((a: any, b: any) => a + b.absences, 0)
+          tournaments: gt.filter((t: any) => t.status === 'ativo').length + tc.filter((t: any) => t.status === 'ativo').length + pg.filter((t: any) => t.status === 'ativo').length,
+          absences: absences.filter((a: any) => a.status === 'ativo').reduce((a: any, b: any) => a + b.absences, 0)
         });
       } catch (e) {
         console.error(e);

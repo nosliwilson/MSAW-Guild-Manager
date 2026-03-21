@@ -1,19 +1,40 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Swords, Info, Trash2 } from 'lucide-react';
+import { Upload, Swords, Info, Trash2, TrendingUp, TrendingDown } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function Tournaments({ fetchApi }: { fetchApi: any }) {
   const [activeTab, setActiveTab] = useState('guerra_total');
+  const [statusTab, setStatusTab] = useState<'ativos' | 'inativos'>('ativos');
+  const [viewTab, setViewTab] = useState<'historico' | 'comparacao'>('historico');
+  const [selectedDate, setSelectedDate] = useState<string>('all');
   const [data, setData] = useState<any[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [compareStart, setCompareStart] = useState('');
+  const [compareEnd, setCompareEnd] = useState('');
+  const [compareData, setCompareData] = useState<any[]>([]);
 
   const loadData = async (type: string) => {
     const res = await fetchApi(`/api/tournaments/${type}`);
     setData(await res.json());
   };
 
+  const loadComparison = async () => {
+    if (!compareStart || !compareEnd) return;
+    const res = await fetchApi(`/api/tournaments/${activeTab}/compare?start=${compareStart}&end=${compareEnd}`);
+    const json = await res.json();
+    setCompareData(json.filter((d: any) => d.status !== 'inativo').map((d: any) => ({
+      ...d,
+      diff: d.end_value - d.start_value
+    })).sort((a: any, b: any) => b.diff - a.diff));
+  };
+
   useEffect(() => {
-    loadData(activeTab);
-  }, [activeTab, fetchApi]);
+    if (viewTab === 'historico') {
+      loadData(activeTab);
+    } else {
+      loadComparison();
+    }
+  }, [activeTab, viewTab, compareStart, compareEnd, fetchApi]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.[0]) return;
@@ -52,6 +73,15 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
     if (power >= 1000000) return (power / 1000000).toFixed(2) + 'M';
     return power.toLocaleString();
   };
+
+  const formatDate = (dateString: string) => {
+    if (!dateString) return '-';
+    const parts = dateString.split('-');
+    if (parts.length !== 3) return dateString;
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  };
+
+  const uniqueDates = Array.from(new Set(data.map(d => d.date))).sort((a, b) => (b as string).localeCompare(a as string));
 
   return (
     <div className="space-y-6">
@@ -106,100 +136,241 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
         </div>
       </div>
 
-      <div className="flex gap-2 border-b border-zinc-800 pb-4">
-        <button
-          onClick={() => setActiveTab('guerra_total')}
-          className={`px-4 py-2 rounded-lg transition-colors ${activeTab === 'guerra_total' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
-        >
-          Guerra Total
-        </button>
-        <button
-          onClick={() => setActiveTab('torneio_celeste')}
-          className={`px-4 py-2 rounded-lg transition-colors ${activeTab === 'torneio_celeste' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
-        >
-          Torneio Celeste
-        </button>
-        <button
-          onClick={() => setActiveTab('pico_gloria')}
-          className={`px-4 py-2 rounded-lg transition-colors ${activeTab === 'pico_gloria' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
-        >
-          Pico de Glória
-        </button>
+      <div className="flex justify-between items-center border-b border-zinc-800 pb-4">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setActiveTab('guerra_total')}
+            className={`px-4 py-2 rounded-lg transition-colors ${activeTab === 'guerra_total' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+          >
+            Guerra Total
+          </button>
+          <button
+            onClick={() => setActiveTab('torneio_celeste')}
+            className={`px-4 py-2 rounded-lg transition-colors ${activeTab === 'torneio_celeste' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+          >
+            Torneio Celeste
+          </button>
+          <button
+            onClick={() => setActiveTab('pico_gloria')}
+            className={`px-4 py-2 rounded-lg transition-colors ${activeTab === 'pico_gloria' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+          >
+            Pico de Glória
+          </button>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setViewTab('historico')}
+            className={`px-4 py-2 rounded-lg transition-colors ${viewTab === 'historico' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+          >
+            Histórico Geral
+          </button>
+          <button
+            onClick={() => setViewTab('comparacao')}
+            className={`px-4 py-2 rounded-lg transition-colors ${viewTab === 'comparacao' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+          >
+            Comparação
+          </button>
+        </div>
       </div>
 
-      <div className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden">
-        <table className="w-full text-left text-sm text-zinc-400">
-          <thead className="bg-zinc-950/50 text-zinc-300">
-            <tr>
-              <th className="px-6 py-4 font-medium">Data</th>
-              <th className="px-6 py-4 font-medium">Nick</th>
-              
-              {activeTab === 'guerra_total' && (
-                <th className="px-6 py-4 font-medium">Poder Total</th>
-              )}
-              
-              {activeTab === 'torneio_celeste' && (
-                <>
-                  <th className="px-6 py-4 font-medium">Guild</th>
-                  <th className="px-6 py-4 font-medium">Campo</th>
-                  <th className="px-6 py-4 font-medium">Pontuação</th>
-                </>
-              )}
-              
-              {activeTab === 'pico_gloria' && (
-                <>
-                  <th className="px-6 py-4 font-medium">Rodada</th>
-                  <th className="px-6 py-4 font-medium">Pontuação</th>
-                </>
-              )}
-              <th className="px-6 py-4 font-medium">Ações</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-800">
-            {data.map(item => (
-              <tr key={item.id} className="hover:bg-zinc-800/50">
-                <td className="px-6 py-4">{item.date}</td>
-                <td className="px-6 py-4 font-medium text-white">{item.nick}</td>
+      {viewTab === 'historico' && (
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-zinc-400">Filtrar por Data:</label>
+              <select
+                value={selectedDate}
+                onChange={e => setSelectedDate(e.target.value)}
+                className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
+              >
+                <option value="all">Todas as Datas</option>
+                {uniqueDates.map(date => (
+                  <option key={date as string} value={date as string}>{formatDate(date as string)}</option>
+                ))}
+              </select>
+            </div>
+            {selectedDate !== 'all' && (
+              <button
+                onClick={() => {
+                  handleDeleteByDate(selectedDate);
+                  setSelectedDate('all');
+                }}
+                className="flex items-center gap-2 bg-red-600/20 text-red-400 hover:bg-red-600/30 px-4 py-2 rounded-lg transition-colors"
+              >
+                <Trash2 className="w-4 h-4" />
+                Excluir registros de {formatDate(selectedDate)}
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setStatusTab('ativos')}
+              className={`px-4 py-2 rounded-lg transition-colors ${statusTab === 'ativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+            >
+              Ativos
+            </button>
+            <button
+              onClick={() => setStatusTab('inativos')}
+              className={`px-4 py-2 rounded-lg transition-colors ${statusTab === 'inativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+            >
+              Arquivo Morto (Inativos)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {viewTab === 'historico' ? (
+        <div className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden">
+          <table className="w-full text-left text-sm text-zinc-400">
+            <thead className="bg-zinc-950/50 text-zinc-300">
+              <tr>
+                <th className="px-6 py-4 font-medium">Data</th>
+                <th className="px-6 py-4 font-medium">Nick</th>
                 
                 {activeTab === 'guerra_total' && (
-                  <td className="px-6 py-4 text-emerald-400">{formatPower(Number(item.power))}</td>
+                  <th className="px-6 py-4 font-medium">Poder Total</th>
                 )}
                 
                 {activeTab === 'torneio_celeste' && (
                   <>
-                    <td className="px-6 py-4">{item.guild}</td>
-                    <td className="px-6 py-4">{item.field}</td>
-                    <td className="px-6 py-4 text-emerald-400">{item.score.toLocaleString()}</td>
+                    <th className="px-6 py-4 font-medium">Guild</th>
+                    <th className="px-6 py-4 font-medium">Campo</th>
+                    <th className="px-6 py-4 font-medium">Pontuação</th>
                   </>
                 )}
                 
                 {activeTab === 'pico_gloria' && (
                   <>
-                    <td className="px-6 py-4">{item.round}</td>
-                    <td className="px-6 py-4 text-emerald-400">{item.score.toLocaleString()}</td>
+                    <th className="px-6 py-4 font-medium">Rodada</th>
+                    <th className="px-6 py-4 font-medium">Pontuação</th>
                   </>
                 )}
-                <td className="px-6 py-4">
-                  <button
-                    onClick={() => handleDeleteByDate(item.date)}
-                    className="text-zinc-400 hover:text-red-400 flex items-center gap-1"
-                    title="Excluir todos os registros desta data (Rollback)"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </td>
+                <th className="px-6 py-4 font-medium">Ações</th>
               </tr>
-            ))}
-            {data.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-6 py-8 text-center text-zinc-500">
-                  Nenhum dado registrado para este torneio.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody className="divide-y divide-zinc-800">
+              {data.filter(item => (statusTab === 'ativos' ? item.status === 'ativo' : item.status === 'inativo') && (selectedDate === 'all' || item.date === selectedDate)).map(item => (
+                <tr key={item.id} className="hover:bg-zinc-800/50">
+                  <td className="px-6 py-4">{formatDate(item.date)}</td>
+                  <td className="px-6 py-4 font-medium text-white">{item.nick}</td>
+                  
+                  {activeTab === 'guerra_total' && (
+                    <td className="px-6 py-4 text-emerald-400">{formatPower(Number(item.power))}</td>
+                  )}
+                  
+                  {activeTab === 'torneio_celeste' && (
+                    <>
+                      <td className="px-6 py-4">{item.guild}</td>
+                      <td className="px-6 py-4">{item.field}</td>
+                      <td className="px-6 py-4 text-emerald-400">{item.score.toLocaleString()}</td>
+                    </>
+                  )}
+                  
+                  {activeTab === 'pico_gloria' && (
+                    <>
+                      <td className="px-6 py-4">{item.round}</td>
+                      <td className="px-6 py-4 text-emerald-400">{item.score.toLocaleString()}</td>
+                    </>
+                  )}
+                  <td className="px-6 py-4">
+                    <button
+                      onClick={() => handleDeleteByDate(item.date)}
+                      className="text-zinc-400 hover:text-red-400 flex items-center gap-1"
+                      title="Excluir todos os registros desta data (Rollback)"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {data.filter(item => (statusTab === 'ativos' ? item.status === 'ativo' : item.status === 'inativo') && (selectedDate === 'all' || item.date === selectedDate)).length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-6 py-8 text-center text-zinc-500">
+                    Nenhum dado registrado para membros {statusTab} neste torneio.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 flex gap-4 items-end">
+            <div>
+              <label className="block text-sm text-zinc-400 mb-1">Data Inicial</label>
+              <input
+                type="date"
+                value={compareStart}
+                onChange={e => setCompareStart(e.target.value)}
+                className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-zinc-400 mb-1">Data Final</label>
+              <input
+                type="date"
+                value={compareEnd}
+                onChange={e => setCompareEnd(e.target.value)}
+                className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
+              />
+            </div>
+          </div>
+
+          {compareData.length > 0 && (
+            <>
+              <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800">
+                <div className="h-[400px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={compareData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
+                      <XAxis dataKey="nick" stroke="#a1a1aa" />
+                      <YAxis 
+                        stroke="#a1a1aa" 
+                        tickFormatter={(val) => activeTab === 'guerra_total' ? formatPower(val) : val.toLocaleString()}
+                        width={80}
+                      />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', color: '#fff' }}
+                        formatter={(value: number) => [activeTab === 'guerra_total' ? formatPower(value) : value.toLocaleString(), 'Evolução']}
+                        labelStyle={{ color: '#a1a1aa' }}
+                      />
+                      <Bar dataKey="diff" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden">
+                <table className="w-full text-left text-sm text-zinc-400">
+                  <thead className="bg-zinc-950/50 text-zinc-300">
+                    <tr>
+                      <th className="px-6 py-4 font-medium">Nick</th>
+                      <th className="px-6 py-4 font-medium">Valor Inicial</th>
+                      <th className="px-6 py-4 font-medium">Valor Final</th>
+                      <th className="px-6 py-4 font-medium">Evolução</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800">
+                    {compareData.map((d, i) => (
+                      <tr key={i} className="hover:bg-zinc-800/50">
+                        <td className="px-6 py-4 font-medium text-white">{d.nick}</td>
+                        <td className="px-6 py-4">{activeTab === 'guerra_total' ? formatPower(d.start_value) : d.start_value.toLocaleString()}</td>
+                        <td className="px-6 py-4">{activeTab === 'guerra_total' ? formatPower(d.end_value) : d.end_value.toLocaleString()}</td>
+                        <td className="px-6 py-4">
+                          <div className={`flex items-center gap-1 ${d.diff >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {d.diff >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                            {activeTab === 'guerra_total' ? formatPower(Math.abs(d.diff)) : Math.abs(d.diff).toLocaleString()}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -105,7 +105,7 @@ db.exec(`
 `);
 
 // Add import_id to tables safely
-const tablesToAlter = ['power_history', 'guerra_total', 'torneio_celeste', 'pico_gloria', 'fenda_history'];
+const tablesToAlter = ['members', 'power_history', 'guerra_total', 'torneio_celeste', 'pico_gloria', 'fenda_history'];
 for (const table of tablesToAlter) {
   try {
     db.exec(`ALTER TABLE ${table} ADD COLUMN import_id INTEGER REFERENCES imports(id)`);
@@ -279,9 +279,28 @@ app.delete('/api/members/:id', authenticateToken, (req: any, res) => {
 });
 
 // Power History
+app.get('/api/power/compare', authenticateToken, (req, res) => {
+  const { start, end } = req.query;
+  if (!start || !end) return res.status(400).json({ error: 'Datas start e end são obrigatórias' });
+
+  const data = db.prepare(`
+    SELECT 
+      m.nick,
+      m.status,
+      COALESCE(MAX(CASE WHEN p.date = ? THEN p.power END), 0) as start_power,
+      COALESCE(MAX(CASE WHEN p.date = ? THEN p.power END), 0) as end_power
+    FROM members m
+    LEFT JOIN power_history p ON m.id = p.member_id AND p.date IN (?, ?)
+    GROUP BY m.id
+    HAVING start_power > 0 OR end_power > 0
+  `).all(start, end, start, end);
+  
+  res.json(data);
+});
+
 app.get('/api/power', authenticateToken, (req, res) => {
   const history = db.prepare(`
-    SELECT p.*, m.nick 
+    SELECT p.*, m.nick, m.status 
     FROM power_history p 
     JOIN members m ON p.member_id = m.id 
     ORDER BY p.date DESC
@@ -310,18 +329,43 @@ app.delete('/api/power/date/:date', authenticateToken, (req: any, res) => {
 });
 
 // Tournaments
+app.get('/api/tournaments/:type/compare', authenticateToken, (req, res) => {
+  const { type } = req.params;
+  const { start, end } = req.query;
+  if (!start || !end) return res.status(400).json({ error: 'Datas start e end são obrigatórias' });
+
+  const validTypes = ['guerra_total', 'torneio_celeste', 'pico_gloria'];
+  if (!validTypes.includes(type)) return res.status(400).json({ error: 'Tipo inválido' });
+
+  const valueColumn = type === 'guerra_total' ? 'power' : 'score';
+
+  const data = db.prepare(`
+    SELECT 
+      m.nick,
+      m.status,
+      COALESCE(MAX(CASE WHEN t.date = ? THEN t.${valueColumn} END), 0) as start_value,
+      COALESCE(MAX(CASE WHEN t.date = ? THEN t.${valueColumn} END), 0) as end_value
+    FROM members m
+    LEFT JOIN ${type} t ON m.id = t.member_id AND t.date IN (?, ?)
+    GROUP BY m.id
+    HAVING start_value > 0 OR end_value > 0
+  `).all(start, end, start, end);
+  
+  res.json(data);
+});
+
 app.get('/api/tournaments/guerra_total', authenticateToken, (req, res) => {
-  const data = db.prepare('SELECT t.*, m.nick FROM guerra_total t JOIN members m ON t.member_id = m.id ORDER BY t.date DESC').all();
+  const data = db.prepare('SELECT t.*, m.nick, m.status FROM guerra_total t JOIN members m ON t.member_id = m.id ORDER BY t.date DESC').all();
   res.json(data);
 });
 
 app.get('/api/tournaments/torneio_celeste', authenticateToken, (req, res) => {
-  const data = db.prepare('SELECT t.*, m.nick FROM torneio_celeste t JOIN members m ON t.member_id = m.id ORDER BY t.date DESC').all();
+  const data = db.prepare('SELECT t.*, m.nick, m.status FROM torneio_celeste t JOIN members m ON t.member_id = m.id ORDER BY t.date DESC').all();
   res.json(data);
 });
 
 app.get('/api/tournaments/pico_gloria', authenticateToken, (req, res) => {
-  const data = db.prepare('SELECT t.*, m.nick FROM pico_gloria t JOIN members m ON t.member_id = m.id ORDER BY t.date DESC').all();
+  const data = db.prepare('SELECT t.*, m.nick, m.status FROM pico_gloria t JOIN members m ON t.member_id = m.id ORDER BY t.date DESC').all();
   res.json(data);
 });
 
@@ -350,12 +394,31 @@ app.delete('/api/tournaments/:type/date/:date', authenticateToken, (req: any, re
 });
 
 // Fenda
+app.get('/api/fenda/compare', authenticateToken, (req, res) => {
+  const { start, end } = req.query;
+  if (!start || !end) return res.status(400).json({ error: 'Datas start e end são obrigatórias' });
+
+  const data = db.prepare(`
+    SELECT 
+      m.nick,
+      m.status,
+      COALESCE(MAX(CASE WHEN f.date = ? THEN f.crystals END), 0) as start_value,
+      COALESCE(MAX(CASE WHEN f.date = ? THEN f.crystals END), 0) as end_value
+    FROM members m
+    LEFT JOIN fenda_history f ON m.id = f.member_id AND f.date IN (?, ?)
+    GROUP BY m.id
+    HAVING start_value > 0 OR end_value > 0
+  `).all(start, end, start, end);
+  
+  res.json(data);
+});
+
 app.get('/api/fenda', authenticateToken, (req, res) => {
   const seasonRow = db.prepare("SELECT value FROM settings WHERE key = 'fenda_season'").get() as any;
   const season = parseInt(seasonRow?.value || '1', 10);
   
   const data = db.prepare(`
-    SELECT f.id, m.nick, f.crystals, f.date 
+    SELECT f.id, m.nick, m.status, f.crystals, f.date 
     FROM fenda_history f
     JOIN members m ON f.member_id = m.id
     WHERE f.season = ?
@@ -370,6 +433,18 @@ app.post('/api/fenda/close', authenticateToken, (req, res) => {
     const seasonRow = db.prepare("SELECT value FROM settings WHERE key = 'fenda_season'").get() as any;
     const newSeason = parseInt(seasonRow?.value || '1', 10) + 1;
     db.prepare("UPDATE settings SET value = ? WHERE key = 'fenda_season'").run(newSeason.toString());
+  })();
+  res.json({ success: true });
+});
+
+app.post('/api/fenda/reopen', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  db.transaction(() => {
+    const seasonRow = db.prepare("SELECT value FROM settings WHERE key = 'fenda_season'").get() as any;
+    const currentSeason = parseInt(seasonRow?.value || '1', 10);
+    if (currentSeason > 1) {
+      db.prepare("UPDATE settings SET value = ? WHERE key = 'fenda_season'").run((currentSeason - 1).toString());
+    }
   })();
   res.json({ success: true });
 });
@@ -395,6 +470,20 @@ app.delete('/api/fenda/date/:date', authenticateToken, (req: any, res) => {
 });
 
 // CSV Uploads
+function parseDateStr(d: string | undefined | null, fallback: string) {
+  if (!d) return fallback;
+  if (d.includes('/')) {
+    const parts = d.split('/');
+    if (parts.length === 3) {
+      // Assume DD/MM/YYYY
+      let year = parts[2];
+      if (year.length === 2) year = '20' + year;
+      return `${year}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    }
+  }
+  return d;
+}
+
 app.post('/api/upload/:type', authenticateToken, upload.single('file'), (req: any, res) => {
   if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
   
@@ -408,7 +497,7 @@ app.post('/api/upload/:type', authenticateToken, upload.single('file'), (req: an
       fs.unlinkSync(req.file!.path); // Clean up
       
       try {
-        const insertMember = db.prepare('INSERT OR IGNORE INTO members (nick, entry_date) VALUES (?, ?)');
+        const insertMember = db.prepare('INSERT OR IGNORE INTO members (nick, entry_date, import_id) VALUES (?, ?, ?)');
         const getMember = db.prepare('SELECT id FROM members WHERE nick = ?');
         
         if (results.length === 0) {
@@ -426,8 +515,9 @@ app.post('/api/upload/:type', authenticateToken, upload.single('file'), (req: an
             const nick = row.Nick || row.nick || row.NICK;
             if (!nick) continue;
             
-            const entryDate = row.Date || row.date || row.Data || row.data || row.DATA || importDate;
-            insertMember.run(nick, entryDate);
+            const rawDate = row.Date || row.date || row.Data || row.data || row.DATA;
+            const entryDate = parseDateStr(rawDate, importDate);
+            insertMember.run(nick, entryDate, importId);
             const member = getMember.get(nick) as any;
             if (!member) continue;
             
@@ -435,19 +525,19 @@ app.post('/api/upload/:type', authenticateToken, upload.single('file'), (req: an
               // Just importing members, nothing else to insert
             } else if (type === 'power') {
               db.prepare('INSERT INTO power_history (member_id, power, date, import_id) VALUES (?, ?, ?, ?)').run(
-                member.id, row.Power || row.power || row.Poder || row.poder || row.PODER, row.Date || row.date || row.Data || row.data || row.DATA || importDate, importId
+                member.id, row.Power || row.power || row.Poder || row.poder || row.PODER, entryDate, importId
               );
             } else if (type === 'guerra_total') {
               db.prepare('INSERT INTO guerra_total (member_id, power, date, import_id) VALUES (?, ?, ?, ?)').run(
-                member.id, row.Power || row.power || row.Poder || row.poder || row.PODER, row.Date || row.date || row.Data || row.data || row.DATA || importDate, importId
+                member.id, row.Power || row.power || row.Poder || row.poder || row.PODER, entryDate, importId
               );
             } else if (type === 'torneio_celeste') {
               db.prepare('INSERT INTO torneio_celeste (member_id, guild, score, field, date, import_id) VALUES (?, ?, ?, ?, ?, ?)').run(
-                member.id, row.Guild || row.guild || row.GUILD, row.Score || row.score || row.Pontuacao || row.pontuacao || row.PONTUACAO, row.Field || row.field || row.Campo || row.campo || row.CAMPO, row.Date || row.date || row.Data || row.data || row.DATA || importDate, importId
+                member.id, row.Guild || row.guild || row.GUILD, row.Score || row.score || row.Pontuacao || row.pontuacao || row.PONTUACAO, row.Field || row.field || row.Campo || row.campo || row.CAMPO, entryDate, importId
               );
             } else if (type === 'pico_gloria') {
               db.prepare('INSERT INTO pico_gloria (member_id, round, score, date, import_id) VALUES (?, ?, ?, ?, ?)').run(
-                member.id, row.Round || row.round || row.Rodada || row.rodada || row.RODADA, row.Score || row.score || row.Pontuacao || row.pontuacao || row.PONTUACAO, row.Date || row.date || row.Data || row.data || row.DATA || importDate, importId
+                member.id, row.Round || row.round || row.Rodada || row.rodada || row.RODADA, row.Score || row.score || row.Pontuacao || row.pontuacao || row.PONTUACAO, entryDate, importId
               );
             } else if (type === 'fenda') {
               const seasonRow = db.prepare("SELECT value FROM settings WHERE key = 'fenda_season'").get() as any;
@@ -455,7 +545,7 @@ app.post('/api/upload/:type', authenticateToken, upload.single('file'), (req: an
               const crystals = row.Crystals || row.crystals || row.Cristais || row.cristais || row.CRISTAIS;
               if (crystals) {
                 db.prepare('INSERT INTO fenda_history (member_id, crystals, date, season, import_id) VALUES (?, ?, ?, ?, ?)').run(
-                  member.id, crystals, row.Date || row.date || row.Data || row.data || row.DATA || importDate, season, importId
+                  member.id, crystals, entryDate, season, importId
                 );
               }
             }
@@ -495,6 +585,7 @@ app.delete('/api/imports/:id', authenticateToken, (req: any, res) => {
       db.prepare('DELETE FROM torneio_celeste WHERE import_id = ?').run(id);
       db.prepare('DELETE FROM pico_gloria WHERE import_id = ?').run(id);
       db.prepare('DELETE FROM fenda_history WHERE import_id = ?').run(id);
+      db.prepare('DELETE FROM members WHERE import_id = ?').run(id);
       db.prepare('DELETE FROM imports WHERE id = ?').run(id);
     })();
     
@@ -506,17 +597,14 @@ app.delete('/api/imports/:id', authenticateToken, (req: any, res) => {
 
 // Absences (Faltas)
 app.get('/api/absences', authenticateToken, (req, res) => {
-  // Find active members who don't have records in tournaments for a given date range
-  // For simplicity, let's just count total tournaments they missed
-  
-  const activeMembers = db.prepare("SELECT id, nick FROM members WHERE status = 'ativo'").all() as any[];
+  const allMembers = db.prepare("SELECT id, nick, status FROM members").all() as any[];
   
   // Get all unique dates from tournaments
   const datesGT = db.prepare('SELECT DISTINCT date FROM guerra_total').all() as any[];
   const datesTC = db.prepare('SELECT DISTINCT date FROM torneio_celeste').all() as any[];
   const datesPG = db.prepare('SELECT DISTINCT date FROM pico_gloria').all() as any[];
   
-  const absences = activeMembers.map(m => {
+  const absences = allMembers.map(m => {
     let missed = 0;
     
     for (const d of datesGT) {
@@ -532,7 +620,7 @@ app.get('/api/absences', authenticateToken, (req, res) => {
       if (!participated) missed++;
     }
     
-    return { nick: m.nick, absences: missed };
+    return { nick: m.nick, status: m.status, absences: missed };
   });
   
   res.json(absences.filter(a => a.absences > 0).sort((a, b) => b.absences - a.absences));
