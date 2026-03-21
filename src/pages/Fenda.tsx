@@ -7,10 +7,12 @@ import ImportModal from '../components/ImportModal';
 export default function Fenda({ fetchApi }: { fetchApi: any }) {
   const [data, setData] = useState<any[]>([]);
   const [season, setSeason] = useState<number>(1);
+  const [selectedSeason, setSelectedSeason] = useState<number | 'all'>('all');
+  const [allSeasons, setAllSeasons] = useState<any[]>([]);
   const [uploading, setUploading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [statusTab, setStatusTab] = useState<'ativos' | 'inativos'>('ativos');
-  const [viewTab, setViewTab] = useState<'historico' | 'comparacao' | 'temporadas'>('historico');
+  const [viewTab, setViewTab] = useState<'historico' | 'comparacao' | 'seasons'>('historico');
   const [selectedDate, setSelectedDate] = useState<string>('all');
   const [compareStart, setCompareStart] = useState('');
   const [compareEnd, setCompareEnd] = useState('');
@@ -27,11 +29,20 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
     setMembers(await res.json());
   };
 
-  const loadData = async () => {
-    const res = await fetchApi('/api/fenda');
+  const loadData = async (seasonNum?: number | 'all') => {
+    const s = seasonNum ?? selectedSeason;
+    const url = s === 'all' ? '/api/fenda' : `/api/fenda?season=${s}`;
+    const res = await fetchApi(url);
     const json = await res.json();
     setData(json.data);
-    setSeason(json.season);
+    setSeason(json.currentSeason);
+    if (s === 'all') setSelectedSeason(json.currentSeason);
+  };
+
+  const loadAllSeasons = async () => {
+    const res = await fetchApi('/api/fenda/seasons');
+    const json = await res.json();
+    setAllSeasons(json);
   };
 
   const loadSeasons = async () => {
@@ -45,7 +56,8 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
     if (compareMode === 'single' && !compareStart) return;
 
     const end = compareMode === 'single' ? compareStart : compareEnd;
-    const res = await fetchApi(`/api/fenda/compare?start=${compareStart}&end=${end}`);
+    const seasonParam = selectedSeason !== 'all' ? `&season=${selectedSeason}` : '';
+    const res = await fetchApi(`/api/fenda/compare?start=${compareStart}&end=${end}${seasonParam}`);
     const json = await res.json();
     setCompareData(json.filter((d: any) => d.status !== 'inativo').map((d: any) => ({
       ...d,
@@ -56,15 +68,22 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
   useEffect(() => {
     loadData();
     loadMembers();
+    loadAllSeasons();
   }, [fetchApi]);
+
+  useEffect(() => {
+    if (selectedSeason !== 'all') {
+      loadData(selectedSeason);
+    }
+  }, [selectedSeason]);
 
   useEffect(() => {
     if (viewTab === 'comparacao') {
       loadComparison();
-    } else if (viewTab === 'temporadas') {
+    } else if (viewTab === 'seasons') {
       loadSeasons();
     }
-  }, [viewTab, compareStart, compareEnd, compareMode]);
+  }, [viewTab, compareStart, compareEnd, compareMode, selectedSeason]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.[0]) return;
@@ -129,14 +148,14 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
   };
 
   const handleReopen = async (seasonNumber?: number) => {
-    if (!confirm('Tem certeza que deseja reabrir a temporada? Isso voltará a contagem da fenda para a temporada passada.')) return;
+    if (!confirm('Tem certeza que deseja reabrir a season? Isso voltará a contagem da fenda para a season passada.')) return;
     try {
       await fetchApi('/api/fenda/reopen', { 
         method: 'POST',
         body: JSON.stringify({ season_number: seasonNumber })
       });
       loadData();
-      if (viewTab === 'temporadas') loadSeasons();
+      if (viewTab === 'seasons') loadSeasons();
     } catch (e: any) {
       alert(e.message);
     }
@@ -181,7 +200,7 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
         )}
         <h1 className="text-2xl font-bold text-white flex items-center gap-2">
           <Gem className="w-6 h-6 text-emerald-400" />
-          Fenda (Temporada {season})
+          Fenda (Season {selectedSeason === 'all' ? season : selectedSeason})
         </h1>
         <div className="flex items-center gap-4">
           <div className="relative group">
@@ -231,7 +250,7 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
       </div>
 
       <div className="flex justify-between items-center border-b border-zinc-800 pb-4">
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setViewTab('historico')}
             className={`px-4 py-2 rounded-lg transition-colors ${viewTab === 'historico' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
@@ -245,28 +264,52 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
             Comparação de Fenda
           </button>
           <button
-            onClick={() => setViewTab('temporadas')}
-            className={`px-4 py-2 rounded-lg transition-colors ${viewTab === 'temporadas' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+            onClick={() => setViewTab('seasons')}
+            className={`px-4 py-2 rounded-lg transition-colors ${viewTab === 'seasons' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
           >
-            Histórico de Temporadas
+            Histórico de Seasons
           </button>
         </div>
-        {viewTab === 'historico' && (
-          <div className="flex gap-2">
-            <button
-              onClick={() => setStatusTab('ativos')}
-              className={`px-4 py-2 rounded-lg transition-colors ${statusTab === 'ativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-zinc-400">Season:</label>
+            <select
+              value={selectedSeason}
+              onChange={(e) => {
+                const val = e.target.value === 'all' ? 'all' : Number(e.target.value);
+                setSelectedSeason(val);
+                setSelectedDate('all');
+                setCompareStart('');
+                setCompareEnd('');
+              }}
+              className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
             >
-              Ativos
-            </button>
-            <button
-              onClick={() => setStatusTab('inativos')}
-              className={`px-4 py-2 rounded-lg transition-colors ${statusTab === 'inativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
-            >
-              Arquivo Morto (Inativos)
-            </button>
+              {allSeasons.map((s) => (
+                <option key={s.season_number} value={s.season_number}>
+                  Season {s.season_number} {s.is_active ? '(Atual)' : ''}
+                </option>
+              ))}
+            </select>
           </div>
-        )}
+
+          {viewTab === 'historico' && (
+            <div className="flex gap-2 border-l border-zinc-800 pl-4">
+              <button
+                onClick={() => setStatusTab('ativos')}
+                className={`px-4 py-2 rounded-lg transition-colors ${statusTab === 'ativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+              >
+                Ativos
+              </button>
+              <button
+                onClick={() => setStatusTab('inativos')}
+                className={`px-4 py-2 rounded-lg transition-colors ${statusTab === 'inativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+              >
+                Arquivo Morto (Inativos)
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {viewTab === 'historico' ? (
@@ -498,12 +541,12 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
         </div>
       )}
 
-      {viewTab === 'temporadas' && (
+      {viewTab === 'seasons' && (
         <div className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden">
           <table className="w-full text-left text-sm text-zinc-400">
             <thead className="bg-zinc-950/50 text-zinc-300">
               <tr>
-                <th className="px-6 py-4 font-medium">Temporada</th>
+                <th className="px-6 py-4 font-medium">Season</th>
                 <th className="px-6 py-4 font-medium">Data de Fechamento</th>
                 <th className="px-6 py-4 font-medium">Ações</th>
               </tr>
@@ -511,13 +554,13 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
             <tbody className="divide-y divide-zinc-800">
               {seasonsData.map((s) => (
                 <tr key={s.id} className="hover:bg-zinc-800/50">
-                  <td className="px-6 py-4 font-medium text-white">Temporada {s.season_number}</td>
+                  <td className="px-6 py-4 font-medium text-white">Season {s.season_number}</td>
                   <td className="px-6 py-4">{formatDate(s.closed_at)}</td>
                   <td className="px-6 py-4">
                     <button
                       onClick={() => handleReopen(s.season_number)}
                       className="text-zinc-400 hover:text-red-400 flex items-center gap-1"
-                      title="Excluir fechamento e voltar para esta temporada"
+                      title="Excluir fechamento e voltar para esta season"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -527,7 +570,7 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
               {seasonsData.length === 0 && (
                 <tr>
                   <td colSpan={3} className="px-6 py-8 text-center text-zinc-500">
-                    Nenhum fechamento de temporada registrado.
+                    Nenhum fechamento de season registrado.
                   </td>
                 </tr>
               )}
@@ -544,7 +587,7 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
               Fechar Fenda
             </h2>
             <p className="text-zinc-300 mb-4">
-              Selecione a data em que a fenda foi fechada. Isso iniciará um novo ciclo (Temporada {season + 1}).
+              Selecione a data em que a fenda foi fechada. Isso iniciará um novo ciclo (Season {season + 1}).
             </p>
             <input
               type="date"

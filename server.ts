@@ -440,10 +440,10 @@ app.delete('/api/tournaments/:type/date/:date', authenticateToken, (req: any, re
 
 // Fenda
 app.get('/api/fenda/compare', authenticateToken, (req, res) => {
-  const { start, end } = req.query;
+  const { start, end, season } = req.query;
   if (!start || !end) return res.status(400).json({ error: 'Datas start e end são obrigatórias' });
 
-  const data = db.prepare(`
+  let query = `
     SELECT 
       m.nick,
       m.status,
@@ -451,16 +451,28 @@ app.get('/api/fenda/compare', authenticateToken, (req, res) => {
       COALESCE(MAX(CASE WHEN f.date = ? THEN f.crystals END), 0) as end_value
     FROM members m
     LEFT JOIN fenda_history f ON m.id = f.member_id AND f.date IN (?, ?)
+  `;
+  
+  const params = [start, end, start, end];
+  
+  if (season) {
+    query += ` AND f.season = ? `;
+    params.push(season);
+  }
+  
+  query += `
     GROUP BY m.id
     HAVING start_value > 0 OR end_value > 0
-  `).all(start, end, start, end);
-  
+  `;
+
+  const data = db.prepare(query).all(...params);
   res.json(data);
 });
 
 app.get('/api/fenda', authenticateToken, (req, res) => {
   const seasonRow = db.prepare("SELECT value FROM settings WHERE key = 'fenda_season'").get() as any;
-  const season = parseInt(seasonRow?.value || '1', 10);
+  const currentSeason = parseInt(seasonRow?.value || '1', 10);
+  const requestedSeason = req.query.season ? parseInt(req.query.season as string, 10) : currentSeason;
   
   const data = db.prepare(`
     SELECT f.id, m.nick, m.status, f.crystals, f.date 
@@ -468,9 +480,9 @@ app.get('/api/fenda', authenticateToken, (req, res) => {
     JOIN members m ON f.member_id = m.id
     WHERE f.season = ?
     ORDER BY f.crystals DESC
-  `).all(season);
+  `).all(requestedSeason);
   
-  res.json({ season, data });
+  res.json({ season: requestedSeason, currentSeason, data });
 });
 
 app.get('/api/fenda/seasons', authenticateToken, (req, res) => {
