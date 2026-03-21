@@ -177,7 +177,7 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
                 <li><code className="text-emerald-400">Nick</code> (Nome do membro)</li>
                 {activeTab === 'guerra_total' && (
                   <>
-                    <li><code className="text-emerald-400">Poder</code> (Valor numérico)</li>
+                    <li><code className="text-emerald-400">Pontuação</code> (Valor numérico)</li>
                     <li><code className="text-emerald-400">Data</code> (Opcional, formato DD/MM/YYYY)</li>
                   </>
                 )}
@@ -372,7 +372,7 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
                 <th className="px-6 py-4 font-medium">Nick</th>
                 
                 {activeTab === 'guerra_total' && (
-                  <th className="px-6 py-4 font-medium">Poder Total</th>
+                  <th className="px-6 py-4 font-medium">Pontuação</th>
                 )}
                 
                 {activeTab === 'torneio_celeste' && (
