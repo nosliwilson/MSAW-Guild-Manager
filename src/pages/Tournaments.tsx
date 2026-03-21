@@ -17,6 +17,8 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
   const [uploading, setUploading] = useState(false);
   const [compareStart, setCompareStart] = useState('');
   const [compareEnd, setCompareEnd] = useState('');
+  const [compareMode, setCompareMode] = useState<'period' | 'single'>('period');
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const [compareData, setCompareData] = useState<any[]>([]);
   const [importPreview, setImportPreview] = useState<{ results: any[], unknownNicks: string[] } | null>(null);
   const [members, setMembers] = useState<any[]>([]);
@@ -40,8 +42,11 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
   };
 
   const loadComparison = async () => {
-    if (!compareStart || !compareEnd) return;
-    const res = await fetchApi(`/api/tournaments/${activeTab}/compare?start=${compareStart}&end=${compareEnd}`);
+    if (compareMode === 'period' && (!compareStart || !compareEnd)) return;
+    if (compareMode === 'single' && !compareStart) return;
+
+    const end = compareMode === 'single' ? compareStart : compareEnd;
+    const res = await fetchApi(`/api/tournaments/${activeTab}/compare?start=${compareStart}&end=${end}`);
     const json = await res.json();
     setCompareData(json.filter((d: any) => d.status !== 'inativo').map((d: any) => ({
       ...d,
@@ -56,7 +61,7 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
       loadComparison();
     }
     loadMembers();
-  }, [activeTab, viewTab, compareStart, compareEnd, fetchApi]);
+  }, [activeTab, viewTab, compareStart, compareEnd, compareMode, fetchApi]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.[0]) return;
@@ -445,24 +450,80 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
         </div>
       ) : (
         <div className="space-y-6">
-          <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 flex gap-4 items-end">
-            <div>
-              <label className="block text-sm text-zinc-400 mb-1">Data Inicial</label>
-              <input
-                type="date"
-                value={compareStart}
-                onChange={e => setCompareStart(e.target.value)}
-                className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
-              />
+          <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 space-y-4">
+            <div className="flex flex-wrap gap-4 items-end">
+              <div>
+                <label className="block text-sm text-zinc-400 mb-1">Modo de Comparação</label>
+                <div className="flex bg-zinc-950 p-1 rounded-lg border border-zinc-700">
+                  <button
+                    onClick={() => setCompareMode('period')}
+                    className={`px-3 py-1.5 rounded-md text-sm transition-colors ${compareMode === 'period' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+                  >
+                    Período
+                  </button>
+                  <button
+                    onClick={() => setCompareMode('single')}
+                    className={`px-3 py-1.5 rounded-md text-sm transition-colors ${compareMode === 'single' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+                  >
+                    Data Única
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-zinc-400 mb-1">{compareMode === 'period' ? 'Data Inicial' : 'Data'}</label>
+                <select
+                  value={compareStart}
+                  onChange={e => setCompareStart(e.target.value)}
+                  className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white min-w-[150px]"
+                >
+                  <option value="">Selecione...</option>
+                  {uniqueDates.map(date => (
+                    <option key={date as string} value={date as string}>{formatDate(date as string)}</option>
+                  ))}
+                </select>
+              </div>
+              {compareMode === 'period' && (
+                <div>
+                  <label className="block text-sm text-zinc-400 mb-1">Data Final</label>
+                  <select
+                    value={compareEnd}
+                    onChange={e => setCompareEnd(e.target.value)}
+                    className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white min-w-[150px]"
+                  >
+                    <option value="">Selecione...</option>
+                    {uniqueDates.map(date => (
+                      <option key={date as string} value={date as string}>{formatDate(date as string)}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
+
             <div>
-              <label className="block text-sm text-zinc-400 mb-1">Data Final</label>
-              <input
-                type="date"
-                value={compareEnd}
-                onChange={e => setCompareEnd(e.target.value)}
-                className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
-              />
+              <label className="block text-sm text-zinc-400 mb-2">Selecionar Membros (Dinâmico)</label>
+              <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-3 bg-zinc-950 rounded-lg border border-zinc-700">
+                <button
+                  onClick={() => setSelectedMembers([])}
+                  className={`px-3 py-1 rounded-full text-xs border transition-colors ${selectedMembers.length === 0 ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'border-zinc-700 text-zinc-500 hover:border-zinc-500'}`}
+                >
+                  Todos
+                </button>
+                {Array.from(new Set(data.map(d => d.nick))).sort().map(nick => (
+                  <button
+                    key={nick as string}
+                    onClick={() => {
+                      if (selectedMembers.includes(nick as string)) {
+                        setSelectedMembers(selectedMembers.filter(m => m !== nick));
+                      } else {
+                        setSelectedMembers([...selectedMembers, nick as string]);
+                      }
+                    }}
+                    className={`px-3 py-1 rounded-full text-xs border transition-colors ${selectedMembers.includes(nick as string) ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'border-zinc-700 text-zinc-500 hover:border-zinc-500'}`}
+                  >
+                    {nick as string}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -471,7 +532,10 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
               <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800">
                 <div className="h-[400px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={compareData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                    <BarChart 
+                      data={compareData.filter(d => selectedMembers.length === 0 || selectedMembers.includes(d.nick))} 
+                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                    >
                       <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
                       <XAxis dataKey="nick" stroke="#a1a1aa" />
                       <YAxis 
@@ -481,10 +545,10 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
                       />
                       <Tooltip 
                         contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', color: '#fff' }}
-                        formatter={(value: number) => [activeTab === 'guerra_total' ? formatPower(value) : value.toLocaleString(), 'Evolução']}
+                        formatter={(value: number) => [activeTab === 'guerra_total' ? formatPower(value) : value.toLocaleString(), compareMode === 'period' ? 'Evolução' : 'Pontuação']}
                         labelStyle={{ color: '#a1a1aa' }}
                       />
-                      <Bar dataKey="diff" fill="#10b981" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey={compareMode === 'period' ? "diff" : "end_value"} fill="#10b981" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -495,25 +559,46 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
                   <thead className="bg-zinc-950/50 text-zinc-300">
                     <tr>
                       <th className="px-6 py-4 font-medium">Nick</th>
-                      <th className="px-6 py-4 font-medium">Valor Inicial</th>
-                      <th className="px-6 py-4 font-medium">Valor Final</th>
-                      <th className="px-6 py-4 font-medium">Evolução</th>
+                      {compareMode === 'period' ? (
+                        <>
+                          <th className="px-6 py-4 font-medium">Valor Inicial</th>
+                          <th className="px-6 py-4 font-medium">Valor Final</th>
+                          <th className="px-6 py-4 font-medium">Evolução</th>
+                        </>
+                      ) : (
+                        <th className="px-6 py-4 font-medium">Pontuação</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800">
-                    {compareData.map((d, i) => (
+                    {compareData
+                      .filter(d => selectedMembers.length === 0 || selectedMembers.includes(d.nick))
+                      .map((d, i) => (
                       <tr key={i} className="hover:bg-zinc-800/50">
                         <td className="px-6 py-4 font-medium text-white">{d.nick}</td>
-                        <td className="px-6 py-4">{activeTab === 'guerra_total' ? formatPower(d.start_value) : d.start_value.toLocaleString()}</td>
-                        <td className="px-6 py-4">{activeTab === 'guerra_total' ? formatPower(d.end_value) : d.end_value.toLocaleString()}</td>
-                        <td className="px-6 py-4">
-                          <div className={`flex items-center gap-1 ${d.diff >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                            {d.diff >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-                            {activeTab === 'guerra_total' ? formatPower(Math.abs(d.diff)) : Math.abs(d.diff).toLocaleString()}
-                          </div>
-                        </td>
+                        {compareMode === 'period' ? (
+                          <>
+                            <td className="px-6 py-4">{activeTab === 'guerra_total' ? formatPower(d.start_value) : d.start_value.toLocaleString()}</td>
+                            <td className="px-6 py-4">{activeTab === 'guerra_total' ? formatPower(d.end_value) : d.end_value.toLocaleString()}</td>
+                            <td className="px-6 py-4">
+                              <div className={`flex items-center gap-1 ${d.diff >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                {d.diff >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                                {activeTab === 'guerra_total' ? formatPower(Math.abs(d.diff)) : Math.abs(d.diff).toLocaleString()}
+                              </div>
+                            </td>
+                          </>
+                        ) : (
+                          <td className="px-6 py-4">{activeTab === 'guerra_total' ? formatPower(d.end_value) : d.end_value.toLocaleString()}</td>
+                        )}
                       </tr>
                     ))}
+                    {compareData.filter(d => selectedMembers.length === 0 || selectedMembers.includes(d.nick)).length === 0 && (
+                      <tr>
+                        <td colSpan={compareMode === 'period' ? 4 : 2} className="px-6 py-8 text-center text-zinc-500">
+                          Nenhum dado registrado para membros ativos neste torneio.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
