@@ -74,6 +74,7 @@ db.exec(`
     member_id INTEGER NOT NULL,
     round INTEGER NOT NULL,
     score INTEGER NOT NULL,
+    team TEXT DEFAULT 'Livre',
     date TEXT NOT NULL,
     FOREIGN KEY (member_id) REFERENCES members(id)
   );
@@ -112,6 +113,12 @@ for (const table of tablesToAlter) {
   } catch (e: any) {
     // Ignore if column already exists
   }
+}
+
+try {
+  db.exec(`ALTER TABLE pico_gloria ADD COLUMN team TEXT DEFAULT 'Livre'`);
+} catch (e: any) {
+  // Ignore if column already exists
 }
 
 // Create default admin if not exists
@@ -536,8 +543,9 @@ app.post('/api/upload/:type', authenticateToken, upload.single('file'), (req: an
                 member.id, row.Guild || row.guild || row.GUILD, row.Score || row.score || row.Pontuacao || row.pontuacao || row.PONTUACAO, row.Field || row.field || row.Campo || row.campo || row.CAMPO, entryDate, importId
               );
             } else if (type === 'pico_gloria') {
-              db.prepare('INSERT INTO pico_gloria (member_id, round, score, date, import_id) VALUES (?, ?, ?, ?, ?)').run(
-                member.id, row.Round || row.round || row.Rodada || row.rodada || row.RODADA, row.Score || row.score || row.Pontuacao || row.pontuacao || row.PONTUACAO, entryDate, importId
+              const team = row.Team || row.team || row.Time || row.time || row.TIME || 'Livre';
+              db.prepare('INSERT INTO pico_gloria (member_id, round, score, team, date, import_id) VALUES (?, ?, ?, ?, ?, ?)').run(
+                member.id, row.Round || row.round || row.Rodada || row.rodada || row.RODADA, row.Score || row.score || row.Pontuacao || row.pontuacao || row.PONTUACAO, team, entryDate, importId
               );
             } else if (type === 'fenda') {
               const seasonRow = db.prepare("SELECT value FROM settings WHERE key = 'fenda_season'").get() as any;

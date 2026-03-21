@@ -101,19 +101,25 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
               <ul className="list-disc list-inside mt-1 space-y-1">
                 <li><code className="text-emerald-400">Nick</code> (Nome do membro)</li>
                 {activeTab === 'guerra_total' && (
-                  <li><code className="text-emerald-400">Poder</code> (Valor numérico)</li>
+                  <>
+                    <li><code className="text-emerald-400">Poder</code> (Valor numérico)</li>
+                    <li><code className="text-emerald-400">Data</code> (Opcional, formato DD/MM/YYYY)</li>
+                  </>
                 )}
                 {activeTab === 'torneio_celeste' && (
                   <>
                     <li><code className="text-emerald-400">Guild</code> (Nome da guilda)</li>
                     <li><code className="text-emerald-400">Campo</code> (Nome do campo)</li>
                     <li><code className="text-emerald-400">Pontuação</code> (Valor numérico)</li>
+                    <li><code className="text-emerald-400">Data</code> (Opcional, formato DD/MM/YYYY)</li>
                   </>
                 )}
                 {activeTab === 'pico_gloria' && (
                   <>
                     <li><code className="text-emerald-400">Rodada</code> (Número da rodada)</li>
                     <li><code className="text-emerald-400">Pontuação</code> (Valor numérico)</li>
+                    <li><code className="text-emerald-400">Time</code> (Elite ou Livre)</li>
+                    <li><code className="text-emerald-400">Data</code> (Opcional, formato DD/MM/YYYY)</li>
                   </>
                 )}
               </ul>
@@ -241,6 +247,7 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
                 
                 {activeTab === 'pico_gloria' && (
                   <>
+                    <th className="px-6 py-4 font-medium">Time</th>
                     <th className="px-6 py-4 font-medium">Rodada</th>
                     <th className="px-6 py-4 font-medium">Pontuação</th>
                   </>
@@ -268,6 +275,11 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
                   
                   {activeTab === 'pico_gloria' && (
                     <>
+                      <td className="px-6 py-4">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${item.team === 'Elite' ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                          {item.team || 'Livre'}
+                        </span>
+                      </td>
                       <td className="px-6 py-4">{item.round}</td>
                       <td className="px-6 py-4 text-emerald-400">{item.score.toLocaleString()}</td>
                     </>
