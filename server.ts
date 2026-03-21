@@ -779,6 +779,24 @@ app.delete('/api/absences/justification', authenticateToken, (req: any, res) => 
   }
 });
 
+app.put('/api/members/:id/nick', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  const { nick } = req.body;
+  const { id } = req.params;
+  
+  if (!nick) return res.status(400).json({ error: 'Nick é obrigatório' });
+  
+  try {
+    db.prepare('UPDATE members SET nick = ? WHERE id = ?').run(nick, id);
+    res.json({ success: true });
+  } catch (e: any) {
+    if (e.message.includes('UNIQUE constraint failed')) {
+      return res.status(400).json({ error: 'Este nick já está em uso por outro membro' });
+    }
+    res.status(500).json({ error: e.message });
+  }
+});
+
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

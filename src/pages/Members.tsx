@@ -15,6 +15,8 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
   const [exitDate, setExitDate] = useState(new Date().toISOString().split('T')[0]);
   
   const [selectedMember, setSelectedMember] = useState<any>(null);
+  const [editingMember, setEditingMember] = useState<any>(null);
+  const [editNickValue, setEditNickValue] = useState('');
   const [roles, setRoles] = useState<any[]>([]);
   const [newRole, setNewRole] = useState('Membro');
   const [newRoleDate, setNewRoleDate] = useState(new Date().toISOString().split('T')[0]);
@@ -134,6 +136,21 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
     if (!confirm('Tem certeza que deseja excluir este membro? Todo o histórico de poder, torneios e fenda será apagado. Esta ação não pode ser desfeita.')) return;
     try {
       await fetchApi(`/api/members/${id}`, { method: 'DELETE' });
+      loadMembers();
+    } catch (e: any) {
+      alert(e.message);
+    }
+  };
+
+  const handleUpdateNick = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingMember) return;
+    try {
+      await fetchApi(`/api/members/${editingMember.id}/nick`, {
+        method: 'PUT',
+        body: JSON.stringify({ nick: editNickValue })
+      });
+      setEditingMember(null);
       loadMembers();
     } catch (e: any) {
       alert(e.message);
@@ -274,6 +291,16 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
                 <td className="px-6 py-4">{formatDate(m.exit_date)}</td>
                 <td className="px-6 py-4 flex gap-3">
                   <button
+                    onClick={() => {
+                      setEditingMember(m);
+                      setEditNickValue(m.nick);
+                    }}
+                    className="text-zinc-400 hover:text-white flex items-center gap-1"
+                    title="Editar Nick"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
                     onClick={() => loadRoles(m)}
                     className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
                     title="Cargos"
@@ -326,6 +353,48 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
                 Confirmar Inativação
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {editingMember && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-white">Editar Nickname</h2>
+              <button onClick={() => setEditingMember(null)} className="text-zinc-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleUpdateNick} className="space-y-4">
+              <div>
+                <label className="block text-sm text-zinc-400 mb-1">Novo Nick</label>
+                <input
+                  type="text"
+                  required
+                  value={editNickValue}
+                  onChange={e => setEditNickValue(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
+                  placeholder="Digite o novo nick..."
+                  autoFocus
+                />
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingMember(null)}
+                  className="px-4 py-2 text-zinc-400 hover:text-white transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition-colors"
+                >
+                  Salvar Alteração
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
