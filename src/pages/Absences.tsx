@@ -108,7 +108,7 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
     });
   }, [absences, timeFilter, eventFilter]);
 
-  const displayAbsences = filteredAbsences.filter(a => activeTab === 'ativos' ? a.status === 'ativo' : a.status === 'inactive');
+  const displayAbsences = filteredAbsences.filter(a => activeTab === 'ativos' ? a.status === 'ativo' : a.status === 'inativo');
 
   return (
     <div className="space-y-6">

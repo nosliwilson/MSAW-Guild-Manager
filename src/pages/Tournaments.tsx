@@ -175,7 +175,7 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
       };
     });
 
-    return sortMembers(enriched, sortCriteria);
+    return [...enriched].sort((a, b) => sortMembers(a, b, sortCriteria));
   }, [data, statusTab, selectedDate, activeTab, selectedTeam, selectedRound, selectedGuild, selectedField, members, sortCriteria]);
 
   const totalPoints = useMemo(() => {

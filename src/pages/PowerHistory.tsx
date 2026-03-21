@@ -133,7 +133,7 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
       .filter(h => (statusTab === 'ativos' ? h.status === 'ativo' : h.status === 'inativo'))
       .filter(h => (selectedNick === 'all' || h.nick === selectedNick) && (selectedDate === 'all' || h.date === selectedDate) && (selectedRole === 'all' || (h.role || 'Membro') === selectedRole));
 
-    return sortMembers(filtered, sortCriteria);
+    return [...filtered].sort((a, b) => sortMembers(a, b, sortCriteria));
   }, [history, statusTab, selectedNick, selectedDate, selectedRole, sortCriteria]);
 
   const totalPower = useMemo(() => {

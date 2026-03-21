@@ -211,7 +211,7 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
       };
     });
 
-    return sortMembers(enriched, sortCriteria);
+    return [...enriched].sort((a, b) => sortMembers(a, b, sortCriteria));
   }, [data, statusTab, selectedDate, members, sortCriteria]);
 
   const totalCrystals = useMemo(() => {
