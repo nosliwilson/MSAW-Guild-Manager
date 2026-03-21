@@ -53,9 +53,7 @@ export default function Dashboard({ fetchApi }: { fetchApi: any }) {
   }, [fetchApi]);
 
   const formatPower = (power: number) => {
-    if (power >= 1000000000) return (power / 1000000000).toFixed(2) + 'B';
-    if (power >= 1000000) return (power / 1000000).toFixed(2) + 'M';
-    return power.toLocaleString();
+    return power.toLocaleString('pt-BR');
   };
 
   return (

@@ -106,9 +106,7 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
   };
 
   const formatPower = (power: number) => {
-    if (power >= 1000000000) return (power / 1000000000).toFixed(2) + 'B';
-    if (power >= 1000000) return (power / 1000000).toFixed(2) + 'M';
-    return power.toLocaleString();
+    return power.toLocaleString('pt-BR');
   };
 
   const uniqueNicks = Array.from(new Set(history.filter(h => (statusTab === 'ativos' ? h.status === 'ativo' : h.status === 'inativo') && (selectedRole === 'all' || (h.role || 'Membro') === selectedRole)).map(h => h.nick))).sort();

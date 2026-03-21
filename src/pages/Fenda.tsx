@@ -148,10 +148,7 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
   };
 
   const formatNumber = (num: number) => {
-    if (num >= 1000000000) return (num / 1000000000).toFixed(2) + 'B';
-    if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(2) + 'K';
-    return num.toLocaleString();
+    return num.toLocaleString('pt-BR');
   };
 
   const formatDate = (dateString: string) => {
