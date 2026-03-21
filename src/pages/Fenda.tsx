@@ -8,17 +8,25 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
   const [uploading, setUploading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [statusTab, setStatusTab] = useState<'ativos' | 'inativos'>('ativos');
-  const [viewTab, setViewTab] = useState<'historico' | 'comparacao'>('historico');
+  const [viewTab, setViewTab] = useState<'historico' | 'comparacao' | 'temporadas'>('historico');
   const [selectedDate, setSelectedDate] = useState<string>('all');
   const [compareStart, setCompareStart] = useState('');
   const [compareEnd, setCompareEnd] = useState('');
   const [compareData, setCompareData] = useState<any[]>([]);
+  const [closeDate, setCloseDate] = useState<string>('');
+  const [seasonsData, setSeasonsData] = useState<any[]>([]);
 
   const loadData = async () => {
     const res = await fetchApi('/api/fenda');
     const json = await res.json();
     setData(json.data);
     setSeason(json.season);
+  };
+
+  const loadSeasons = async () => {
+    const res = await fetchApi('/api/fenda/seasons');
+    const json = await res.json();
+    setSeasonsData(json);
   };
 
   const loadComparison = async () => {
@@ -38,6 +46,8 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
   useEffect(() => {
     if (viewTab === 'comparacao') {
       loadComparison();
+    } else if (viewTab === 'temporadas') {
+      loadSeasons();
     }
   }, [viewTab, compareStart, compareEnd]);
 
@@ -64,20 +74,32 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
   };
 
   const confirmClose = async () => {
+    if (!closeDate) {
+      alert('Por favor, selecione a data de fechamento.');
+      return;
+    }
     try {
-      await fetchApi('/api/fenda/close', { method: 'POST' });
+      await fetchApi('/api/fenda/close', { 
+        method: 'POST',
+        body: JSON.stringify({ date: closeDate })
+      });
       setShowConfirm(false);
+      setCloseDate('');
       loadData();
     } catch (err: any) {
       alert(err.message);
     }
   };
 
-  const handleReopen = async () => {
-    if (!confirm('Tem certeza que deseja reabrir a temporada anterior? Isso voltará a contagem da fenda para a temporada passada.')) return;
+  const handleReopen = async (seasonNumber?: number) => {
+    if (!confirm('Tem certeza que deseja reabrir a temporada? Isso voltará a contagem da fenda para a temporada passada.')) return;
     try {
-      await fetchApi('/api/fenda/reopen', { method: 'POST' });
+      await fetchApi('/api/fenda/reopen', { 
+        method: 'POST',
+        body: JSON.stringify({ season_number: seasonNumber })
+      });
       loadData();
+      if (viewTab === 'temporadas') loadSeasons();
     } catch (e: any) {
       alert(e.message);
     }
@@ -176,6 +198,12 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
             className={`px-4 py-2 rounded-lg transition-colors ${viewTab === 'comparacao' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
           >
             Comparação de Fenda
+          </button>
+          <button
+            onClick={() => setViewTab('temporadas')}
+            className={`px-4 py-2 rounded-lg transition-colors ${viewTab === 'temporadas' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
+          >
+            Histórico de Temporadas
           </button>
         </div>
         {viewTab === 'historico' && (
@@ -345,6 +373,44 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
         </div>
       )}
 
+      {viewTab === 'temporadas' && (
+        <div className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden">
+          <table className="w-full text-left text-sm text-zinc-400">
+            <thead className="bg-zinc-950/50 text-zinc-300">
+              <tr>
+                <th className="px-6 py-4 font-medium">Temporada</th>
+                <th className="px-6 py-4 font-medium">Data de Fechamento</th>
+                <th className="px-6 py-4 font-medium">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800">
+              {seasonsData.map((s) => (
+                <tr key={s.id} className="hover:bg-zinc-800/50">
+                  <td className="px-6 py-4 font-medium text-white">Temporada {s.season_number}</td>
+                  <td className="px-6 py-4">{formatDate(s.closed_at)}</td>
+                  <td className="px-6 py-4">
+                    <button
+                      onClick={() => handleReopen(s.season_number)}
+                      className="text-zinc-400 hover:text-red-400 flex items-center gap-1"
+                      title="Excluir fechamento e voltar para esta temporada"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {seasonsData.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="px-6 py-8 text-center text-zinc-500">
+                    Nenhum fechamento de temporada registrado.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {showConfirm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-6 w-full max-w-md">
@@ -352,9 +418,15 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
               <AlertTriangle className="w-6 h-6 text-amber-500" />
               Fechar Fenda
             </h2>
-            <p className="text-zinc-300 mb-6">
-              Tem certeza que deseja fechar a fenda atual? Isso iniciará um novo ciclo (Temporada {season + 1}) e a contagem de cristais será resetada para a nova fenda.
+            <p className="text-zinc-300 mb-4">
+              Selecione a data em que a fenda foi fechada. Isso iniciará um novo ciclo (Temporada {season + 1}).
             </p>
+            <input
+              type="date"
+              value={closeDate}
+              onChange={e => setCloseDate(e.target.value)}
+              className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white mb-6"
+            />
             <div className="flex gap-3 justify-end">
               <button 
                 onClick={() => setShowConfirm(false)} 

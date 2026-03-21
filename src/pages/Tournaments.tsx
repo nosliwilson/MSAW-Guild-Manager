@@ -7,11 +7,23 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
   const [statusTab, setStatusTab] = useState<'ativos' | 'inativos'>('ativos');
   const [viewTab, setViewTab] = useState<'historico' | 'comparacao'>('historico');
   const [selectedDate, setSelectedDate] = useState<string>('all');
+  const [selectedTeam, setSelectedTeam] = useState<string>('all');
+  const [selectedRound, setSelectedRound] = useState<string>('all');
+  const [selectedGuild, setSelectedGuild] = useState<string>('all');
+  const [selectedField, setSelectedField] = useState<string>('all');
   const [data, setData] = useState<any[]>([]);
   const [uploading, setUploading] = useState(false);
   const [compareStart, setCompareStart] = useState('');
   const [compareEnd, setCompareEnd] = useState('');
   const [compareData, setCompareData] = useState<any[]>([]);
+
+  useEffect(() => {
+    setSelectedDate('all');
+    setSelectedTeam('all');
+    setSelectedRound('all');
+    setSelectedGuild('all');
+    setSelectedField('all');
+  }, [activeTab]);
 
   const loadData = async (type: string) => {
     const res = await fetchApi(`/api/tournaments/${type}`);
@@ -82,6 +94,28 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
   };
 
   const uniqueDates = Array.from(new Set(data.map(d => d.date))).sort((a, b) => (b as string).localeCompare(a as string));
+  const uniqueTeams = Array.from(new Set(data.map(d => String(d.team || 'Livre')))).sort();
+  const uniqueRounds = Array.from(new Set(data.map(d => String(d.round)).filter(r => r !== 'undefined'))).sort((a, b) => Number(a) - Number(b));
+  const uniqueGuilds = Array.from(new Set(data.map(d => String(d.guild)).filter(g => g !== 'undefined'))).sort();
+  const uniqueFields = Array.from(new Set(data.map(d => String(d.field)).filter(f => f !== 'undefined'))).sort();
+
+  const filteredData = data.filter(item => {
+    if (statusTab === 'ativos' && item.status !== 'ativo') return false;
+    if (statusTab === 'inativos' && item.status !== 'inativo') return false;
+    if (selectedDate !== 'all' && item.date !== selectedDate) return false;
+    
+    if (activeTab === 'pico_gloria') {
+      if (selectedTeam !== 'all' && String(item.team || 'Livre') !== selectedTeam) return false;
+      if (selectedRound !== 'all' && String(item.round) !== selectedRound) return false;
+    }
+    
+    if (activeTab === 'torneio_celeste') {
+      if (selectedGuild !== 'all' && String(item.guild) !== selectedGuild) return false;
+      if (selectedField !== 'all' && String(item.field) !== selectedField) return false;
+    }
+    
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -181,20 +215,83 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
 
       {viewTab === 'historico' && (
         <div className="flex justify-between items-center mb-4">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
             <div className="flex items-center gap-2">
-              <label className="text-sm text-zinc-400">Filtrar por Data:</label>
+              <label className="text-sm text-zinc-400">Data:</label>
               <select
                 value={selectedDate}
                 onChange={e => setSelectedDate(e.target.value)}
                 className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
               >
-                <option value="all">Todas as Datas</option>
+                <option value="all">Todas</option>
                 {uniqueDates.map(date => (
                   <option key={date as string} value={date as string}>{formatDate(date as string)}</option>
                 ))}
               </select>
             </div>
+
+            {activeTab === 'pico_gloria' && (
+              <>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-zinc-400">Time:</label>
+                  <select
+                    value={selectedTeam}
+                    onChange={e => setSelectedTeam(e.target.value)}
+                    className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
+                  >
+                    <option value="all">Todos</option>
+                    {uniqueTeams.map(team => (
+                      <option key={team as string} value={team as string}>{team as string}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-zinc-400">Rodada:</label>
+                  <select
+                    value={selectedRound}
+                    onChange={e => setSelectedRound(e.target.value)}
+                    className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
+                  >
+                    <option value="all">Todas</option>
+                    {uniqueRounds.map(round => (
+                      <option key={round as string} value={round as string}>{round as string}</option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
+
+            {activeTab === 'torneio_celeste' && (
+              <>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-zinc-400">Guild:</label>
+                  <select
+                    value={selectedGuild}
+                    onChange={e => setSelectedGuild(e.target.value)}
+                    className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
+                  >
+                    <option value="all">Todas</option>
+                    {uniqueGuilds.map(guild => (
+                      <option key={guild as string} value={guild as string}>{guild as string}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-zinc-400">Campo:</label>
+                  <select
+                    value={selectedField}
+                    onChange={e => setSelectedField(e.target.value)}
+                    className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
+                  >
+                    <option value="all">Todos</option>
+                    {uniqueFields.map(field => (
+                      <option key={field as string} value={field as string}>{field as string}</option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
+
             {selectedDate !== 'all' && (
               <button
                 onClick={() => {
@@ -256,7 +353,7 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800">
-              {data.filter(item => (statusTab === 'ativos' ? item.status === 'ativo' : item.status === 'inativo') && (selectedDate === 'all' || item.date === selectedDate)).map(item => (
+              {filteredData.map(item => (
                 <tr key={item.id} className="hover:bg-zinc-800/50">
                   <td className="px-6 py-4">{formatDate(item.date)}</td>
                   <td className="px-6 py-4 font-medium text-white">{item.nick}</td>
@@ -295,7 +392,7 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
                   </td>
                 </tr>
               ))}
-              {data.filter(item => (statusTab === 'ativos' ? item.status === 'ativo' : item.status === 'inativo') && (selectedDate === 'all' || item.date === selectedDate)).length === 0 && (
+              {filteredData.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-6 py-8 text-center text-zinc-500">
                     Nenhum dado registrado para membros {statusTab} neste torneio.

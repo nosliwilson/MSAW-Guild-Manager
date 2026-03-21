@@ -17,116 +17,133 @@ app.use(express.json());
 // Setup Database
 const db = new Database('guild.db');
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    role TEXT DEFAULT 'user',
-    is_blocked INTEGER DEFAULT 0
-  );
+const checkAndFixDatabase = () => {
+  // Ensure tables exist
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      role TEXT DEFAULT 'user',
+      is_blocked INTEGER DEFAULT 0
+    );
 
-  CREATE TABLE IF NOT EXISTS members (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nick TEXT UNIQUE NOT NULL,
-    status TEXT DEFAULT 'ativo',
-    entry_date TEXT NOT NULL,
-    exit_date TEXT
-  );
+    CREATE TABLE IF NOT EXISTS members (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nick TEXT UNIQUE NOT NULL,
+      status TEXT DEFAULT 'ativo',
+      entry_date TEXT NOT NULL,
+      exit_date TEXT
+    );
 
-  CREATE TABLE IF NOT EXISTS member_roles (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    member_id INTEGER NOT NULL,
-    role TEXT NOT NULL,
-    start_date TEXT NOT NULL,
-    end_date TEXT,
-    FOREIGN KEY (member_id) REFERENCES members(id)
-  );
+    CREATE TABLE IF NOT EXISTS member_roles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      member_id INTEGER NOT NULL,
+      role TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT,
+      FOREIGN KEY (member_id) REFERENCES members(id)
+    );
 
-  CREATE TABLE IF NOT EXISTS power_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    member_id INTEGER NOT NULL,
-    power BIGINT NOT NULL,
-    date TEXT NOT NULL,
-    FOREIGN KEY (member_id) REFERENCES members(id)
-  );
+    CREATE TABLE IF NOT EXISTS power_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      member_id INTEGER NOT NULL,
+      power BIGINT NOT NULL,
+      date TEXT NOT NULL,
+      FOREIGN KEY (member_id) REFERENCES members(id)
+    );
 
-  CREATE TABLE IF NOT EXISTS guerra_total (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    member_id INTEGER NOT NULL,
-    power BIGINT NOT NULL,
-    date TEXT NOT NULL,
-    FOREIGN KEY (member_id) REFERENCES members(id)
-  );
+    CREATE TABLE IF NOT EXISTS guerra_total (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      member_id INTEGER NOT NULL,
+      power BIGINT NOT NULL,
+      date TEXT NOT NULL,
+      FOREIGN KEY (member_id) REFERENCES members(id)
+    );
 
-  CREATE TABLE IF NOT EXISTS torneio_celeste (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    member_id INTEGER NOT NULL,
-    guild TEXT NOT NULL,
-    score INTEGER NOT NULL,
-    field TEXT NOT NULL,
-    date TEXT NOT NULL,
-    FOREIGN KEY (member_id) REFERENCES members(id)
-  );
+    CREATE TABLE IF NOT EXISTS torneio_celeste (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      member_id INTEGER NOT NULL,
+      guild TEXT NOT NULL,
+      score INTEGER NOT NULL,
+      field TEXT NOT NULL,
+      date TEXT NOT NULL,
+      FOREIGN KEY (member_id) REFERENCES members(id)
+    );
 
-  CREATE TABLE IF NOT EXISTS pico_gloria (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    member_id INTEGER NOT NULL,
-    round INTEGER NOT NULL,
-    score INTEGER NOT NULL,
-    team TEXT DEFAULT 'Livre',
-    date TEXT NOT NULL,
-    FOREIGN KEY (member_id) REFERENCES members(id)
-  );
+    CREATE TABLE IF NOT EXISTS pico_gloria (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      member_id INTEGER NOT NULL,
+      round INTEGER NOT NULL,
+      score INTEGER NOT NULL,
+      team TEXT DEFAULT 'Livre',
+      date TEXT NOT NULL,
+      FOREIGN KEY (member_id) REFERENCES members(id)
+    );
 
-  CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value TEXT
-  );
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
 
-  INSERT OR IGNORE INTO settings (key, value) VALUES ('fenda_season', '1');
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('fenda_season', '1');
 
-  CREATE TABLE IF NOT EXISTS fenda_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    member_id INTEGER NOT NULL,
-    crystals BIGINT NOT NULL,
-    date TEXT NOT NULL,
-    season INTEGER NOT NULL,
-    FOREIGN KEY (member_id) REFERENCES members(id)
-  );
+    CREATE TABLE IF NOT EXISTS fenda_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      member_id INTEGER NOT NULL,
+      crystals BIGINT NOT NULL,
+      date TEXT NOT NULL,
+      season INTEGER NOT NULL,
+      FOREIGN KEY (member_id) REFERENCES members(id)
+    );
 
-  CREATE TABLE IF NOT EXISTS imports (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    type TEXT NOT NULL,
-    date TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id)
-  );
-`);
+    CREATE TABLE IF NOT EXISTS rift_seasons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      season_number INTEGER NOT NULL UNIQUE,
+      closed_at TEXT NOT NULL
+    );
 
-// Add import_id to tables safely
-const tablesToAlter = ['members', 'power_history', 'guerra_total', 'torneio_celeste', 'pico_gloria', 'fenda_history'];
-for (const table of tablesToAlter) {
-  try {
-    db.exec(`ALTER TABLE ${table} ADD COLUMN import_id INTEGER REFERENCES imports(id)`);
-  } catch (e: any) {
-    // Ignore if column already exists
+    CREATE TABLE IF NOT EXISTS imports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      date TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+  `);
+
+  // Ensure specific columns exist
+  const checkColumn = (table: string, column: string, typeDef: string) => {
+    try {
+      const columns = db.prepare(`PRAGMA table_info(${table})`).all() as any[];
+      if (!columns.some(c => c.name === column)) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${typeDef}`);
+        console.log(`[DB Fix] Added column ${column} to ${table}`);
+      }
+    } catch (e) {
+      console.error(`[DB Fix] Error checking/adding column ${column} to ${table}:`, e);
+    }
+  };
+
+  const tablesToAlter = ['members', 'power_history', 'guerra_total', 'torneio_celeste', 'pico_gloria', 'fenda_history'];
+  for (const table of tablesToAlter) {
+    checkColumn(table, 'import_id', 'INTEGER REFERENCES imports(id)');
   }
-}
 
-try {
-  db.exec(`ALTER TABLE pico_gloria ADD COLUMN team TEXT DEFAULT 'Livre'`);
-} catch (e: any) {
-  // Ignore if column already exists
-}
+  checkColumn('pico_gloria', 'team', "TEXT DEFAULT 'Livre'");
 
-// Create default admin if not exists
-const adminExists = db.prepare('SELECT * FROM users WHERE username = ?').get('admin');
-if (!adminExists) {
-  const hash = bcrypt.hashSync('admin123', 10);
-  db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('admin', hash, 'admin');
-}
+  // Create default admin if not exists
+  const adminExists = db.prepare('SELECT * FROM users WHERE username = ?').get('admin');
+  if (!adminExists) {
+    const hash = bcrypt.hashSync('admin123', 10);
+    db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('admin', hash, 'admin');
+    console.log('[DB Fix] Created default admin user');
+  }
+};
+
+// Run on startup
+checkAndFixDatabase();
 
 // Multer for CSV uploads
 const upload = multer({ dest: 'uploads/' });
@@ -148,6 +165,9 @@ const authenticateToken = (req: any, res: any, next: any) => {
 
 // Auth
 app.post('/api/auth/login', (req, res) => {
+  // Run DB fix on login as requested
+  checkAndFixDatabase();
+  
   const { username, password } = req.body;
   const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username) as any;
   
@@ -441,10 +461,22 @@ app.get('/api/fenda', authenticateToken, (req, res) => {
   res.json({ season, data });
 });
 
+app.get('/api/fenda/seasons', authenticateToken, (req, res) => {
+  const seasons = db.prepare('SELECT * FROM rift_seasons ORDER BY season_number DESC').all();
+  res.json(seasons);
+});
+
 app.post('/api/fenda/close', authenticateToken, (req, res) => {
+  const { date } = req.body;
+  if (!date) return res.status(400).json({ error: 'Data de fechamento é obrigatória' });
+  
   db.transaction(() => {
     const seasonRow = db.prepare("SELECT value FROM settings WHERE key = 'fenda_season'").get() as any;
-    const newSeason = parseInt(seasonRow?.value || '1', 10) + 1;
+    const currentSeason = parseInt(seasonRow?.value || '1', 10);
+    
+    db.prepare('INSERT INTO rift_seasons (season_number, closed_at) VALUES (?, ?)').run(currentSeason, date);
+    
+    const newSeason = currentSeason + 1;
     db.prepare("UPDATE settings SET value = ? WHERE key = 'fenda_season'").run(newSeason.toString());
   })();
   res.json({ success: true });
@@ -452,11 +484,21 @@ app.post('/api/fenda/close', authenticateToken, (req, res) => {
 
 app.post('/api/fenda/reopen', authenticateToken, (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  
+  const { season_number } = req.body;
+  
   db.transaction(() => {
-    const seasonRow = db.prepare("SELECT value FROM settings WHERE key = 'fenda_season'").get() as any;
-    const currentSeason = parseInt(seasonRow?.value || '1', 10);
-    if (currentSeason > 1) {
-      db.prepare("UPDATE settings SET value = ? WHERE key = 'fenda_season'").run((currentSeason - 1).toString());
+    if (season_number) {
+       db.prepare('DELETE FROM rift_seasons WHERE season_number = ?').run(season_number);
+       db.prepare("UPDATE settings SET value = ? WHERE key = 'fenda_season'").run(season_number.toString());
+    } else {
+      const seasonRow = db.prepare("SELECT value FROM settings WHERE key = 'fenda_season'").get() as any;
+      const currentSeason = parseInt(seasonRow?.value || '1', 10);
+      if (currentSeason > 1) {
+        const prevSeason = currentSeason - 1;
+        db.prepare('DELETE FROM rift_seasons WHERE season_number = ?').run(prevSeason);
+        db.prepare("UPDATE settings SET value = ? WHERE key = 'fenda_season'").run(prevSeason.toString());
+      }
     }
   })();
   res.json({ success: true });

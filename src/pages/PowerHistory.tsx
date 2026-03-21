@@ -339,6 +339,19 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
                 ))}
               </select>
             </div>
+            <div>
+              <label className="block text-sm text-zinc-400 mb-1">Filtrar por Membro</label>
+              <select
+                value={selectedNick}
+                onChange={e => setSelectedNick(e.target.value)}
+                className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
+              >
+                <option value="all">Todos</option>
+                {uniqueNicks.map(nick => (
+                  <option key={nick as string} value={nick as string}>{nick as string}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {compareData.length > 0 && (
@@ -346,7 +359,7 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
               <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800">
                 <div className="h-[400px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={compareData.filter(d => (statusTab === 'ativos' ? d.status === 'ativo' : d.status === 'inativo') && (selectedRole === 'all' || (d.role || 'Membro') === selectedRole))} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                    <BarChart data={compareData.filter(d => (statusTab === 'ativos' ? d.status === 'ativo' : d.status === 'inativo') && (selectedRole === 'all' || (d.role || 'Membro') === selectedRole) && (selectedNick === 'all' || d.nick === selectedNick))} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
                       <XAxis dataKey="nick" stroke="#a1a1aa" />
                       <YAxis 
@@ -377,7 +390,7 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800">
-                    {compareData.filter(d => (statusTab === 'ativos' ? d.status === 'ativo' : d.status === 'inativo') && (selectedRole === 'all' || (d.role || 'Membro') === selectedRole)).map((d, i) => (
+                    {compareData.filter(d => (statusTab === 'ativos' ? d.status === 'ativo' : d.status === 'inativo') && (selectedRole === 'all' || (d.role || 'Membro') === selectedRole) && (selectedNick === 'all' || d.nick === selectedNick)).map((d, i) => (
                       <tr key={i} className="hover:bg-zinc-800/50">
                         <td className="px-6 py-4 font-medium text-white">{d.nick}</td>
                         <td className="px-6 py-4 text-emerald-400">{d.role || 'Membro'}</td>
