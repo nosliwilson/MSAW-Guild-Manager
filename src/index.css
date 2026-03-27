@@ -1,1 +1,46 @@
 @import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-950: #09090b;
+    --bg-900: #18181b;
+    --bg-800: #27272a;
+    --bg-700: #3f3f46;
+    --text-50: #fafafa;
+    --text-300: #d4d4d8;
+    --text-400: #a1a1aa;
+    --text-500: #71717a;
+    --text-white: #ffffff;
+  }
+
+  :root.light {
+    --bg-950: #ffffff;
+    --bg-900: #f4f4f5;
+    --bg-800: #e4e4e7;
+    --bg-700: #d4d4d8;
+    --text-50: #09090b;
+    --text-300: #27272a;
+    --text-400: #52525b;
+    --text-500: #71717a;
+    --text-white: #000000;
+  }
+
+  body {
+    background-color: var(--bg-950);
+    color: var(--text-50);
+    transition: background-color 0.2s, color 0.2s;
+  }
+}
+
+@theme {
+  --color-zinc-950: var(--bg-950);
+  --color-zinc-900: var(--bg-900);
+  --color-zinc-800: var(--bg-800);
+  --color-zinc-700: var(--bg-700);
+  --color-zinc-50: var(--text-50);
+  --color-zinc-300: var(--text-300);
+  --color-zinc-400: var(--text-400);
+  --color-zinc-500: var(--text-500);
+  --color-white: var(--text-white);
+  --color-pure-white: #ffffff;
+}

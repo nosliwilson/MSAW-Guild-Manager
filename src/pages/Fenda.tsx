@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Upload, Gem, Info, AlertTriangle, Trash2, RotateCcw, TrendingUp, TrendingDown } from 'lucide-react';
+import { Upload, Gem, Info, AlertTriangle, Trash2, RotateCcw, TrendingUp, TrendingDown, Database } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { sortMembers, SortCriteria } from '../utils/sorting';
 import ImportModal from '../components/ImportModal';
 import SortSelector from '../components/SortSelector';
 import Pagination from '../components/Pagination';
+import CSVImportButton from '../components/CSVImportButton';
 
 export default function Fenda({ fetchApi }: { fetchApi: any }) {
   const [data, setData] = useState<any[]>([]);
@@ -261,19 +262,13 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
               <p className="mt-2 text-xs text-zinc-400">A data será registrada como o dia da importação, a menos que uma coluna <code className="text-emerald-400">Data</code> seja fornecida.</p>
             </div>
           </div>
-          <div className="relative">
-            <input
-              type="file"
-              accept=".csv"
-              onChange={handleUpload}
-              disabled={uploading}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
-            />
-            <button className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
-              <Upload className="w-4 h-4" />
-              {uploading ? 'Importando...' : 'Importar CSV'}
-            </button>
-          </div>
+          <CSVImportButton
+            type="fenda"
+            fetchApi={fetchApi}
+            onPreview={setImportPreview}
+            onUploading={setUploading}
+            disabled={uploading}
+          />
           <button
             onClick={() => setShowConfirm(true)}
             className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg transition-colors"
@@ -557,6 +552,7 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
                 <table className="w-full text-left text-sm text-zinc-400">
                   <thead className="bg-zinc-950/50 text-zinc-300">
                     <tr>
+                      <th className="px-6 py-4 font-medium w-16 text-center">#</th>
                       <th className="px-6 py-4 font-medium">Nick</th>
                       {compareMode === 'period' ? (
                         <>
@@ -574,6 +570,7 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
                       .filter(d => selectedMembers.length === 0 || selectedMembers.includes(d.nick))
                       .map((d, i) => (
                       <tr key={i} className="hover:bg-zinc-800/50">
+                        <td className="px-6 py-4 font-medium text-zinc-500 text-center">{i + 1}</td>
                         <td className="px-6 py-4 font-medium text-white">{d.nick}</td>
                         {compareMode === 'period' ? (
                           <>
@@ -611,14 +608,16 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
           <table className="w-full text-left text-sm text-zinc-400">
             <thead className="bg-zinc-950/50 text-zinc-300">
               <tr>
+                <th className="px-6 py-4 font-medium w-16 text-center">#</th>
                 <th className="px-6 py-4 font-medium">Season</th>
                 <th className="px-6 py-4 font-medium">Data de Fechamento</th>
                 <th className="px-6 py-4 font-medium">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800">
-              {seasonsData.map((s) => (
+              {seasonsData.map((s, i) => (
                 <tr key={s.id} className="hover:bg-zinc-800/50">
+                  <td className="px-6 py-4 font-medium text-zinc-500 text-center">{i + 1}</td>
                   <td className="px-6 py-4 font-medium text-white">Season {s.season_number}</td>
                   <td className="px-6 py-4">{formatDate(s.closed_at)}</td>
                   <td className="px-6 py-4">

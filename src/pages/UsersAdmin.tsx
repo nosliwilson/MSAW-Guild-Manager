@@ -141,6 +141,7 @@ export default function UsersAdmin({ fetchApi, user }: { fetchApi: any, user: an
         <table className="w-full text-left text-sm text-zinc-400">
           <thead className="bg-zinc-950/50 text-zinc-300">
             <tr>
+              <th className="px-6 py-4 font-medium w-16 text-center">#</th>
               <th className="px-6 py-4 font-medium">ID</th>
               <th className="px-6 py-4 font-medium">Usuário</th>
               <th className="px-6 py-4 font-medium">Papel</th>
@@ -149,8 +150,9 @@ export default function UsersAdmin({ fetchApi, user }: { fetchApi: any, user: an
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800">
-            {users.map(u => (
+            {users.map((u, i) => (
               <tr key={u.id} className="hover:bg-zinc-800/50">
+                <td className="px-6 py-4 font-medium text-zinc-500 text-center">{i + 1}</td>
                 <td className="px-6 py-4">{u.id}</td>
                 <td className="px-6 py-4 font-medium text-white">{u.username}</td>
                 <td className="px-6 py-4">

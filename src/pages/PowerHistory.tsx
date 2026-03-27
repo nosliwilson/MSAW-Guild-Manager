@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Upload, Download, Info, Trash2, TrendingUp, TrendingDown, ArrowUpDown } from 'lucide-react';
+import { Upload, Download, Info, Trash2, TrendingUp, TrendingDown, ArrowUpDown, Database } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { sortMembers, SortCriteria } from '../utils/sorting';
 import ImportModal from '../components/ImportModal';
 import SortSelector from '../components/SortSelector';
 import Pagination from '../components/Pagination';
+import CSVImportButton from '../components/CSVImportButton';
 
 export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
   const [history, setHistory] = useState<any[]>([]);
@@ -187,19 +188,13 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
               <p className="mt-2 text-xs text-zinc-400">A data será registrada como o dia da importação, a menos que uma coluna <code className="text-emerald-400">Data</code> seja fornecida.</p>
             </div>
           </div>
-          <div className="relative">
-            <input
-              type="file"
-              accept=".csv"
-              onChange={handleUpload}
-              disabled={uploading}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
-            />
-            <button className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
-              <Upload className="w-4 h-4" />
-              {uploading ? 'Importando...' : 'Importar CSV'}
-            </button>
-          </div>
+          <CSVImportButton
+            type="power"
+            fetchApi={fetchApi}
+            onPreview={setImportPreview}
+            onUploading={setUploading}
+            disabled={uploading}
+          />
         </div>
       </div>
 
@@ -356,6 +351,7 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
             <table className="w-full text-left text-sm text-zinc-400">
               <thead className="bg-zinc-950/50 text-zinc-300">
                 <tr>
+                  <th className="px-6 py-4 font-medium w-16 text-center">#</th>
                   <th className="px-6 py-4 font-medium">Data</th>
                   <th className="px-6 py-4 font-medium">Nick</th>
                   <th className="px-6 py-4 font-medium">Cargo</th>
@@ -366,6 +362,9 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
               <tbody className="divide-y divide-zinc-800">
                 {paginatedHistory.map((h, i) => (
                   <tr key={i} className="hover:bg-zinc-800/50">
+                    <td className="px-6 py-4 font-medium text-zinc-500 text-center">
+                      {(currentPage - 1) * itemsPerPage + i + 1}
+                    </td>
                     <td className="px-6 py-4">{formatDate(h.date)}</td>
                     <td className="px-6 py-4 font-medium text-white">{h.nick}</td>
                     <td className="px-6 py-4 text-emerald-400">{h.role || 'Membro'}</td>
@@ -533,6 +532,7 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
                 <table className="w-full text-left text-sm text-zinc-400">
                   <thead className="bg-zinc-950/50 text-zinc-300">
                     <tr>
+                      <th className="px-6 py-4 font-medium w-16 text-center">#</th>
                       <th className="px-6 py-4 font-medium">Nick</th>
                       <th className="px-6 py-4 font-medium">Cargo</th>
                       {compareMode === 'period' ? (
@@ -555,6 +555,7 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
                       )
                       .map((d, i) => (
                       <tr key={i} className="hover:bg-zinc-800/50">
+                        <td className="px-6 py-4 font-medium text-zinc-500 text-center">{i + 1}</td>
                         <td className="px-6 py-4 font-medium text-white">{d.nick}</td>
                         <td className="px-6 py-4 text-emerald-400">{d.role || 'Membro'}</td>
                         {compareMode === 'period' ? (

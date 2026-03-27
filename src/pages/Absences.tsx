@@ -214,6 +214,7 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
         <table className="w-full text-left text-sm text-zinc-400">
           <thead className="bg-zinc-950/50 text-zinc-300">
             <tr>
+              <th className="px-6 py-4 font-medium w-16 text-center">#</th>
               <th className="px-6 py-4 font-medium">Nick</th>
               <th className="px-6 py-4 font-medium">Resumo de Faltas</th>
               <th className="px-6 py-4 font-medium">Datas das Faltas</th>
@@ -222,6 +223,7 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
           <tbody className="divide-y divide-zinc-800">
             {displayAbsences.map((item, i) => (
               <tr key={i} className="hover:bg-zinc-800/50 align-top">
+                <td className="px-6 py-4 font-medium text-zinc-500 text-center">{i + 1}</td>
                 <td className="px-6 py-4 font-medium text-white">{item.nick}</td>
                 <td className="px-6 py-4">
                   <div className="space-y-2">

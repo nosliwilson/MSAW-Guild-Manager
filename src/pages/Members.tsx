@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, ShieldAlert, Upload, Info, Trash2, X } from 'lucide-react';
+import { Plus, Edit2, ShieldAlert, Upload, Info, Trash2, X, Database } from 'lucide-react';
 import { sortMembers, SortCriteria } from '../utils/sorting';
 import ImportModal from '../components/ImportModal';
 import Pagination from '../components/Pagination';
 import SortSelector from '../components/SortSelector';
+import CSVImportButton from '../components/CSVImportButton';
 
 export default function Members({ fetchApi }: { fetchApi: any }) {
   const [members, setMembers] = useState<any[]>([]);
@@ -207,19 +208,13 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
               <p className="mt-1">A data de entrada será a data atual, a menos que especificada.</p>
             </div>
           </div>
-          <div className="relative">
-            <input
-              type="file"
-              accept=".csv"
-              onChange={handleUpload}
-              disabled={uploading}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
-            />
-            <button className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
-              <Upload className="w-4 h-4" />
-              {uploading ? 'Importando...' : 'Importar CSV'}
-            </button>
-          </div>
+          <CSVImportButton
+            type="members"
+            fetchApi={fetchApi}
+            onPreview={setImportPreview}
+            onUploading={setUploading}
+            disabled={uploading}
+          />
           <button
             onClick={() => setShowAdd(true)}
             className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition-colors"
@@ -281,6 +276,7 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
         <table className="w-full text-left text-sm text-zinc-400">
           <thead className="bg-zinc-950/50 text-zinc-300">
             <tr>
+              <th className="px-6 py-4 font-medium w-16 text-center">#</th>
               <th className="px-6 py-4 font-medium">Nick</th>
               <th className="px-6 py-4 font-medium">Cargo</th>
               <th className="px-6 py-4 font-medium">Status</th>
@@ -290,8 +286,11 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800">
-            {paginatedMembers.map(m => (
+            {paginatedMembers.map((m, index) => (
               <tr key={m.id} className="hover:bg-zinc-800/50">
+                <td className="px-6 py-4 font-medium text-zinc-500 text-center">
+                  {(currentPage - 1) * pageSize + index + 1}
+                </td>
                 <td className="px-6 py-4 font-medium text-white">{m.nick}</td>
                 <td className="px-6 py-4 text-emerald-400">{m.role || 'Membro'}</td>
                 <td className="px-6 py-4">

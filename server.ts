@@ -123,6 +123,14 @@ const checkAndFixDatabase = () => {
       UNIQUE(member_id, date, tournament_type),
       FOREIGN KEY (member_id) REFERENCES members(id)
     );
+
+    CREATE TABLE IF NOT EXISTS stored_csvs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      filename TEXT NOT NULL,
+      original_name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // Ensure specific columns exist
@@ -159,6 +167,11 @@ checkAndFixDatabase();
 
 // Multer for CSV uploads
 const upload = multer({ dest: 'uploads/' });
+
+// Ensure uploads/csv directory exists
+if (!fs.existsSync('uploads/csv')) {
+  fs.mkdirSync('uploads/csv', { recursive: true });
+}
 
 // Auth Middleware
 const authenticateToken = (req: any, res: any, next: any) => {
@@ -567,6 +580,16 @@ function parseDateStr(d: string | undefined | null, fallback: string) {
 app.post('/api/upload/:type/preview', authenticateToken, upload.single('file'), (req: any, res) => {
   if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
   
+  const shouldStore = req.body.store === 'true';
+  const type = req.params.type;
+
+  if (shouldStore) {
+    const newFilename = `${Date.now()}-${req.file.originalname}`;
+    const newPath = path.join('uploads/csv', newFilename);
+    fs.copyFileSync(req.file.path, newPath);
+    db.prepare('INSERT INTO stored_csvs (filename, original_name, type) VALUES (?, ?, ?)').run(newFilename, req.file.originalname, type);
+  }
+
   const results: any[] = [];
   fs.createReadStream(req.file.path)
     .pipe(parse({ columns: true, trim: true, bom: true, delimiter: [',', ';'] }))
@@ -574,6 +597,66 @@ app.post('/api/upload/:type/preview', authenticateToken, upload.single('file'), 
     .on('end', () => {
       fs.unlinkSync(req.file!.path);
       
+      const unknownNicks = new Set<string>();
+      const getMember = db.prepare('SELECT id FROM members WHERE nick = ?');
+      
+      for (const row of results) {
+        const nick = row.Nick || row.nick || row.NICK;
+        if (nick && !getMember.get(nick)) {
+          unknownNicks.add(nick);
+        }
+      }
+      
+      res.json({ 
+        results, 
+        unknownNicks: Array.from(unknownNicks)
+      });
+    });
+});
+
+// Stored CSVs
+app.get('/api/stored-csvs', authenticateToken, (req, res) => {
+  const csvs = db.prepare('SELECT * FROM stored_csvs ORDER BY created_at DESC').all();
+  res.json(csvs);
+});
+
+app.get('/api/stored-csvs/:id/download', authenticateToken, (req, res) => {
+  const csv = db.prepare('SELECT * FROM stored_csvs WHERE id = ?').get(req.params.id) as any;
+  if (!csv) return res.status(404).json({ error: 'Arquivo não encontrado' });
+  
+  const filePath = path.join('uploads/csv', csv.filename);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Arquivo físico não encontrado' });
+  
+  res.download(filePath, csv.original_name);
+});
+
+app.delete('/api/stored-csvs/:id', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  
+  const csv = db.prepare('SELECT * FROM stored_csvs WHERE id = ?').get(req.params.id) as any;
+  if (!csv) return res.status(404).json({ error: 'Arquivo não encontrado' });
+  
+  const filePath = path.join('uploads/csv', csv.filename);
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+  }
+  
+  db.prepare('DELETE FROM stored_csvs WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+app.get('/api/stored-csvs/:id/preview', authenticateToken, (req, res) => {
+  const csv = db.prepare('SELECT * FROM stored_csvs WHERE id = ?').get(req.params.id) as any;
+  if (!csv) return res.status(404).json({ error: 'Arquivo não encontrado' });
+  
+  const filePath = path.join('uploads/csv', csv.filename);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Arquivo físico não encontrado' });
+  
+  const results: any[] = [];
+  fs.createReadStream(filePath)
+    .pipe(parse({ columns: true, trim: true, bom: true, delimiter: [',', ';'] }))
+    .on('data', (data) => results.push(data))
+    .on('end', () => {
       const unknownNicks = new Set<string>();
       const getMember = db.prepare('SELECT id FROM members WHERE nick = ?');
       
