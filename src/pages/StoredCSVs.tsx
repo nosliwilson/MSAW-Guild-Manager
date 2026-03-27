@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Download, Trash2, Calendar, FileType } from 'lucide-react';
+import { FileText, Download, Trash2, Calendar, FileType, Upload, X } from 'lucide-react';
 
 export default function StoredCSVs({ fetchApi, user }: { fetchApi: any, user: any }) {
   const [csvs, setCsvs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showUpload, setShowUpload] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadType, setUploadType] = useState('members');
+  const [uploading, setUploading] = useState(false);
 
   const loadCsvs = async () => {
     try {
@@ -19,6 +23,30 @@ export default function StoredCSVs({ fetchApi, user }: { fetchApi: any, user: an
   useEffect(() => {
     loadCsvs();
   }, []);
+
+  const handleUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!uploadFile) return;
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', uploadFile);
+    formData.append('type', uploadType);
+
+    try {
+      await fetchApi('/api/stored-csvs/upload', {
+        method: 'POST',
+        body: formData
+      });
+      setShowUpload(false);
+      setUploadFile(null);
+      loadCsvs();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const handleDownload = async (id: number, filename: string) => {
     try {
@@ -69,7 +97,72 @@ export default function StoredCSVs({ fetchApi, user }: { fetchApi: any, user: an
           <FileText className="w-6 h-6 text-emerald-400" />
           Arquivos CSV Armazenados
         </h1>
+        {user?.role === 'admin' && (
+          <button
+            onClick={() => setShowUpload(true)}
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition-colors"
+          >
+            <Upload className="w-4 h-4" />
+            Upload Manual
+          </button>
+        )}
       </div>
+
+      {showUpload && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-zinc-900 rounded-xl border border-zinc-800 w-full max-w-md overflow-hidden">
+            <div className="p-4 border-b border-zinc-800 flex justify-between items-center">
+              <h2 className="text-xl font-bold text-white">Upload de CSV</h2>
+              <button onClick={() => setShowUpload(false)} className="text-zinc-400 hover:text-white">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <form onSubmit={handleUpload} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm text-zinc-400 mb-1">Arquivo CSV</label>
+                <input
+                  type="file"
+                  accept=".csv"
+                  required
+                  onChange={e => setUploadFile(e.target.files?.[0] || null)}
+                  className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-zinc-400 mb-1">Categoria (Área do Sistema)</label>
+                <select
+                  value={uploadType}
+                  onChange={e => setUploadType(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
+                >
+                  <option value="members">Membros</option>
+                  <option value="power">Histórico de Poder</option>
+                  <option value="guerra_total">Guerra Total</option>
+                  <option value="torneio_celeste">Torneio Celeste</option>
+                  <option value="pico_gloria">Pico da Glória</option>
+                  <option value="fenda">Fenda</option>
+                </select>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={uploading || !uploadFile}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {uploading ? 'Enviando...' : 'Enviar Arquivo'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowUpload(false)}
+                  className="px-4 py-2 text-zinc-400 hover:text-white transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       <div className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden">
         <table className="w-full text-left text-sm text-zinc-400">

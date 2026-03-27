@@ -645,6 +645,28 @@ app.delete('/api/stored-csvs/:id', authenticateToken, (req: any, res) => {
   res.json({ success: true });
 });
 
+app.post('/api/stored-csvs/upload', authenticateToken, upload.single('file'), (req: any, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+  if (req.user.role !== 'admin') {
+    fs.unlinkSync(req.file.path);
+    return res.status(403).json({ error: 'Acesso negado' });
+  }
+
+  const type = req.body.type;
+  if (!type) {
+    fs.unlinkSync(req.file.path);
+    return res.status(400).json({ error: 'Tipo não informado' });
+  }
+
+  const newFilename = `${Date.now()}-${req.file.originalname}`;
+  const newPath = path.join('uploads/csv', newFilename);
+  fs.copyFileSync(req.file.path, newPath);
+  fs.unlinkSync(req.file.path);
+
+  db.prepare('INSERT INTO stored_csvs (filename, original_name, type) VALUES (?, ?, ?)').run(newFilename, req.file.originalname, type);
+  res.json({ success: true });
+});
+
 app.get('/api/stored-csvs/:id/preview', authenticateToken, (req, res) => {
   const csv = db.prepare('SELECT * FROM stored_csvs WHERE id = ?').get(req.params.id) as any;
   if (!csv) return res.status(404).json({ error: 'Arquivo não encontrado' });
