@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Upload, Gem, Info, AlertTriangle, Trash2, RotateCcw, TrendingUp, TrendingDown, Database } from 'lucide-react';
+import { Upload, Gem, Info, AlertTriangle, Trash2, RotateCcw, TrendingUp, TrendingDown, Database, Printer } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { sortMembers, SortCriteria } from '../utils/sorting';
 import ImportModal from '../components/ImportModal';
@@ -248,7 +248,14 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
           Fenda (Season {selectedSeason === 'all' ? season : selectedSeason})
         </h1>
         <div className="flex items-center gap-4">
-          <div className="relative group">
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-lg transition-colors print-hidden"
+          >
+            <Printer className="w-4 h-4" />
+            Imprimir / PDF
+          </button>
+          <div className="relative group print-hidden">
             <button className="text-zinc-400 hover:text-white transition-colors">
               <Info className="w-5 h-5" />
             </button>
@@ -262,33 +269,35 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
               <p className="mt-2 text-xs text-zinc-400">A data será registrada como o dia da importação, a menos que uma coluna <code className="text-emerald-400">Data</code> seja fornecida.</p>
             </div>
           </div>
-          <CSVImportButton
-            type="fenda"
-            fetchApi={fetchApi}
-            onPreview={setImportPreview}
-            onUploading={setUploading}
-            disabled={uploading}
-          />
-          <button
-            onClick={() => setShowConfirm(true)}
-            className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg transition-colors"
-          >
-            <AlertTriangle className="w-4 h-4" />
-            Fechar Fenda
-          </button>
-          {season > 1 && (
+          <div className="print-hidden flex items-center gap-2">
+            <CSVImportButton
+              type="fenda"
+              fetchApi={fetchApi}
+              onPreview={setImportPreview}
+              onUploading={setUploading}
+              disabled={uploading}
+            />
             <button
-              onClick={handleReopen}
-              className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-lg transition-colors"
-              title="Desfazer Fechamento"
+              onClick={() => setShowConfirm(true)}
+              className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg transition-colors"
             >
-              <RotateCcw className="w-4 h-4 text-amber-400" />
+              <AlertTriangle className="w-4 h-4" />
+              Fechar Fenda
             </button>
-          )}
+            {season > 1 && (
+              <button
+                onClick={() => handleReopen()}
+                className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-lg transition-colors"
+                title="Desfazer Fechamento"
+              >
+                <RotateCcw className="w-4 h-4 text-amber-400" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="flex justify-between items-center border-b border-zinc-800 pb-4">
+      <div className="print-hidden flex justify-between items-center border-b border-zinc-800 pb-4">
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setViewTab('historico')}
@@ -353,7 +362,7 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
 
       {viewTab === 'historico' ? (
         <div className="space-y-4">
-          <div className="flex flex-wrap items-center gap-4">
+          <div className="print-hidden flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2">
               <label className="text-sm text-zinc-400">Filtrar por Data:</label>
               <select
@@ -432,19 +441,21 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
         </div>
 
         {filteredData.length > 0 && (
-          <Pagination
-            currentPage={currentPage}
-            totalPages={Math.ceil(filteredData.length / itemsPerPage)}
-            onPageChange={setCurrentPage}
-            itemsPerPage={itemsPerPage}
-            onItemsPerPageChange={setItemsPerPage}
-            totalItems={filteredData.length}
-          />
+          <div className="print-hidden">
+            <Pagination
+              currentPage={currentPage}
+              totalPages={Math.ceil(filteredData.length / itemsPerPage)}
+              onPageChange={setCurrentPage}
+              itemsPerPage={itemsPerPage}
+              onItemsPerPageChange={setItemsPerPage}
+              totalItems={filteredData.length}
+            />
+          </div>
         )}
         </div>
       ) : (
         <div className="space-y-6">
-          <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 space-y-4">
+          <div className="print-hidden bg-zinc-900 p-6 rounded-xl border border-zinc-800 space-y-4">
             <div className="flex flex-wrap gap-4 items-end">
               <div>
                 <label className="block text-sm text-zinc-400 mb-1">Modo de Comparação</label>

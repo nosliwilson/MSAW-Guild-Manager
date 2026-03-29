@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, ShieldAlert, Upload, Info, Trash2, X, Database } from 'lucide-react';
+import { Plus, Edit2, ShieldAlert, Upload, Info, Trash2, X, Database, Printer } from 'lucide-react';
 import { sortMembers, SortCriteria } from '../utils/sorting';
 import ImportModal from '../components/ImportModal';
 import Pagination from '../components/Pagination';
@@ -198,7 +198,14 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
         )}
         <h1 className="text-2xl font-bold text-white">Membros</h1>
         <div className="flex items-center gap-4">
-          <div className="relative group">
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-lg transition-colors print-hidden"
+          >
+            <Printer className="w-4 h-4" />
+            Imprimir / PDF
+          </button>
+          <div className="relative group print-hidden">
             <button className="text-zinc-400 hover:text-white transition-colors">
               <Info className="w-5 h-5" />
             </button>
@@ -208,16 +215,18 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
               <p className="mt-1">A data de entrada será a data atual, a menos que especificada.</p>
             </div>
           </div>
-          <CSVImportButton
-            type="members"
-            fetchApi={fetchApi}
-            onPreview={setImportPreview}
-            onUploading={setUploading}
-            disabled={uploading}
-          />
+          <div className="print-hidden">
+            <CSVImportButton
+              type="members"
+              fetchApi={fetchApi}
+              onPreview={setImportPreview}
+              onUploading={setUploading}
+              disabled={uploading}
+            />
+          </div>
           <button
             onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition-colors"
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition-colors print-hidden"
           >
             <Plus className="w-4 h-4" />
             Novo Membro
@@ -225,7 +234,7 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-zinc-800 pb-4">
+      <div className="print-hidden flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-zinc-800 pb-4">
         <div className="flex gap-2">
           <button
             onClick={() => setActiveTab('ativos')}
@@ -282,7 +291,7 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
               <th className="px-6 py-4 font-medium">Status</th>
               <th className="px-6 py-4 font-medium">Entrada</th>
               <th className="px-6 py-4 font-medium">Saída</th>
-              <th className="px-6 py-4 font-medium">Ações</th>
+              <th className="px-6 py-4 font-medium print-hidden">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800">
@@ -305,7 +314,7 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
                 </td>
                 <td className="px-6 py-4">{formatDate(m.entry_date)}</td>
                 <td className="px-6 py-4">{formatDate(m.exit_date)}</td>
-                <td className="px-6 py-4 flex gap-3">
+                <td className="px-6 py-4 flex gap-3 print-hidden">
                   <button
                     onClick={() => {
                       setEditingMember(m);
@@ -335,14 +344,16 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
             ))}
           </tbody>
         </table>
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          onPageChange={setCurrentPage}
-          itemsPerPage={pageSize}
-          onItemsPerPageChange={setPageSize}
-          totalItems={filteredMembers.length}
-        />
+        <div className="print-hidden">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            itemsPerPage={pageSize}
+            onItemsPerPageChange={setPageSize}
+            totalItems={filteredMembers.length}
+          />
+        </div>
       </div>
 
       {showExitModal && (

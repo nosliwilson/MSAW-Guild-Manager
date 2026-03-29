@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { CalendarX, Info, X, Check, AlertCircle, Filter, RotateCcw } from 'lucide-react';
+import { CalendarX, Info, X, Check, AlertCircle, Filter, RotateCcw, Printer } from 'lucide-react';
 
 export default function Absences({ fetchApi }: { fetchApi: any }) {
   const [absences, setAbsences] = useState<any[]>([]);
@@ -136,9 +136,16 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
           <CalendarX className="w-6 h-6 text-red-400" />
           Controle de Faltas
         </h1>
+        <button
+          onClick={() => window.print()}
+          className="print-hidden flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-lg transition-colors"
+        >
+          <Printer className="w-4 h-4" />
+          Imprimir / PDF
+        </button>
       </div>
 
-      <div className="flex gap-2 border-b border-zinc-800 pb-4">
+      <div className="print-hidden flex gap-2 border-b border-zinc-800 pb-4">
         <button
           onClick={() => setActiveTab('ativos')}
           className={`px-4 py-2 rounded-lg transition-colors ${activeTab === 'ativos' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'}`}
@@ -153,7 +160,7 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
         </button>
       </div>
 
-      <div className="bg-zinc-900 p-4 rounded-xl border border-zinc-800 flex flex-wrap items-center gap-6">
+      <div className="print-hidden bg-zinc-900 p-4 rounded-xl border border-zinc-800 flex flex-wrap items-center gap-6">
         <div className="flex items-center gap-2">
           <Filter className="w-4 h-4 text-zinc-400" />
           <span className="text-sm font-medium text-zinc-300">Filtros:</span>

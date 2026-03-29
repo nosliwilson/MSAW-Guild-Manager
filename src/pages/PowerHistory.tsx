@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Upload, Download, Info, Trash2, TrendingUp, TrendingDown, ArrowUpDown, Database } from 'lucide-react';
+import { Upload, Download, Info, Trash2, TrendingUp, TrendingDown, ArrowUpDown, Database, Printer } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { sortMembers, SortCriteria } from '../utils/sorting';
 import ImportModal from '../components/ImportModal';
@@ -174,7 +174,14 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-white">Histórico de Poder</h1>
         <div className="flex items-center gap-4">
-          <div className="relative group">
+          <button
+            onClick={() => window.print()}
+            className="print-hidden flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-lg transition-colors"
+          >
+            <Printer className="w-4 h-4" />
+            Imprimir / PDF
+          </button>
+          <div className="relative group print-hidden">
             <button className="text-zinc-400 hover:text-white transition-colors">
               <Info className="w-5 h-5" />
             </button>
@@ -188,17 +195,19 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
               <p className="mt-2 text-xs text-zinc-400">A data será registrada como o dia da importação, a menos que uma coluna <code className="text-emerald-400">Data</code> seja fornecida.</p>
             </div>
           </div>
-          <CSVImportButton
-            type="power"
-            fetchApi={fetchApi}
-            onPreview={setImportPreview}
-            onUploading={setUploading}
-            disabled={uploading}
-          />
+          <div className="print-hidden">
+            <CSVImportButton
+              type="power"
+              fetchApi={fetchApi}
+              onPreview={setImportPreview}
+              onUploading={setUploading}
+              disabled={uploading}
+            />
+          </div>
         </div>
       </div>
 
-      <div className="flex justify-between items-center border-b border-zinc-800 pb-4">
+      <div className="print-hidden flex justify-between items-center border-b border-zinc-800 pb-4">
         <div className="flex gap-2">
           <button
             onClick={() => setActiveTab('historico')}
@@ -243,7 +252,7 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
             />
           )}
           <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800">
-          <div className="mb-6 flex flex-wrap items-center gap-4">
+          <div className="print-hidden mb-6 flex flex-wrap items-center gap-4">
             <SortSelector criteria={sortCriteria} onChange={setSortCriteria} />
             <div className="flex items-center gap-2">
             <label className="text-sm text-zinc-400">Filtrar por Cargo:</label>
@@ -391,7 +400,7 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
             </table>
           </div>
           {filteredHistory.length > 0 && (
-            <div className="mt-4">
+            <div className="print-hidden mt-4">
               <Pagination
                 currentPage={currentPage}
                 totalPages={Math.ceil(filteredHistory.length / itemsPerPage)}
@@ -405,7 +414,7 @@ export default function PowerHistory({ fetchApi }: { fetchApi: any }) {
         </>
       ) : (
         <div className="space-y-6">
-          <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 space-y-4">
+          <div className="print-hidden bg-zinc-900 p-6 rounded-xl border border-zinc-800 space-y-4">
             <div className="flex flex-wrap gap-4 items-end">
               <div>
                 <label className="block text-sm text-zinc-400 mb-1">Modo de Comparação</label>

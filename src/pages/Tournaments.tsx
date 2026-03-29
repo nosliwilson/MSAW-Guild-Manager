@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Upload, Swords, Info, Trash2, TrendingUp, TrendingDown, Database } from 'lucide-react';
+import { Upload, Swords, Info, Trash2, TrendingUp, TrendingDown, Database, Printer } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { sortMembers, SortCriteria } from '../utils/sorting';
 import ImportModal from '../components/ImportModal';
@@ -212,7 +212,14 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
           Torneios
         </h1>
         <div className="flex items-center gap-4">
-          <div className="relative group">
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-lg transition-colors print-hidden"
+          >
+            <Printer className="w-4 h-4" />
+            Imprimir / PDF
+          </button>
+          <div className="relative group print-hidden">
             <button className="text-zinc-400 hover:text-white transition-colors">
               <Info className="w-5 h-5" />
             </button>
@@ -247,17 +254,19 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
               <p className="mt-2 text-xs text-zinc-400">A data será registrada como o dia da importação, a menos que uma coluna <code className="text-emerald-400">Data</code> seja fornecida.</p>
             </div>
           </div>
-          <CSVImportButton
-            type={activeTab}
-            fetchApi={fetchApi}
-            onPreview={setImportPreview}
-            onUploading={setUploading}
-            disabled={uploading}
-          />
+          <div className="print-hidden">
+            <CSVImportButton
+              type={activeTab}
+              fetchApi={fetchApi}
+              onPreview={setImportPreview}
+              onUploading={setUploading}
+              disabled={uploading}
+            />
+          </div>
         </div>
       </div>
 
-      <div className="flex justify-between items-center border-b border-zinc-800 pb-4">
+      <div className="print-hidden flex justify-between items-center border-b border-zinc-800 pb-4">
         <div className="flex gap-2">
           <button
             onClick={() => setActiveTab('guerra_total')}
@@ -295,7 +304,7 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
       </div>
 
       {viewTab === 'historico' && (
-        <div className="flex justify-between items-center mb-4">
+        <div className="print-hidden flex justify-between items-center mb-4">
           <div className="flex items-center gap-4 flex-wrap">
             <div className="flex items-center gap-2">
               <label className="text-sm text-zinc-400">Data:</label>
@@ -499,7 +508,7 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
           </table>
         </div>
         {filteredData.length > 0 && (
-          <div className="mt-4">
+          <div className="print-hidden mt-4">
             <Pagination
               currentPage={currentPage}
               totalPages={Math.ceil(filteredData.length / itemsPerPage)}
@@ -513,7 +522,7 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
         </div>
       ) : (
         <div className="space-y-6">
-          <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 space-y-4">
+          <div className="print-hidden bg-zinc-900 p-6 rounded-xl border border-zinc-800 space-y-4">
             <div className="flex flex-wrap gap-4 items-end">
               <div>
                 <label className="block text-sm text-zinc-400 mb-1">Modo de Comparação</label>
