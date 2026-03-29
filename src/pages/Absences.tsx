@@ -10,6 +10,8 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
   const [saving, setSaving] = useState(false);
   const [timeFilter, setTimeFilter] = useState<string>('all');
   const [eventFilter, setEventFilter] = useState<string>('all');
+  const [specificDate, setSpecificDate] = useState<string>('');
+  const [specificMember, setSpecificMember] = useState<string>('');
 
   const loadAbsences = async () => {
     const res = await fetchApi('/api/absences');
@@ -19,6 +21,10 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
   useEffect(() => {
     loadAbsences();
   }, [fetchApi]);
+
+  const uniqueNicks = useMemo(() => {
+    return Array.from(new Set(absences.map(a => a.nick))).sort();
+  }, [absences]);
 
   const handleSaveJustification = async () => {
     if (!selectedAbsence) return;
@@ -71,23 +77,33 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
   };
 
   const filteredAbsences = useMemo(() => {
-    return absences.map(member => {
+    let result = absences;
+
+    if (specificMember) {
+      result = result.filter(a => a.nick === specificMember);
+    }
+
+    return result.map(member => {
       // Sort missed dates by date descending (most recent first)
       let filteredMissedDates = [...member.missedDates].sort((a, b) => b.date.localeCompare(a.date));
 
-      // Apply time filter
-      if (timeFilter !== 'all') {
-        const now = new Date();
-        const days = parseInt(timeFilter);
-        const cutoff = new Date();
-        cutoff.setDate(now.getDate() - days);
-        filteredMissedDates = filteredMissedDates.filter(m => new Date(m.date) >= cutoff);
-      }
+      if (specificDate) {
+        filteredMissedDates = filteredMissedDates.filter(m => m.date === specificDate);
+      } else {
+        // Apply time filter
+        if (timeFilter !== 'all') {
+          const now = new Date();
+          const days = parseInt(timeFilter);
+          const cutoff = new Date();
+          cutoff.setDate(now.getDate() - days);
+          filteredMissedDates = filteredMissedDates.filter(m => new Date(m.date) >= cutoff);
+        }
 
-      // Apply event filter
-      if (eventFilter !== 'all') {
-        const limit = parseInt(eventFilter);
-        filteredMissedDates = filteredMissedDates.slice(0, limit);
+        // Apply event filter
+        if (eventFilter !== 'all') {
+          const limit = parseInt(eventFilter);
+          filteredMissedDates = filteredMissedDates.slice(0, limit);
+        }
       }
 
       // Recalculate totals for the filtered list
@@ -105,8 +121,11 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
         missedDates: filteredMissedDates,
         totals
       };
+    }).filter(member => {
+      if (specificDate) return member.missedDates.length > 0;
+      return true;
     });
-  }, [absences, timeFilter, eventFilter]);
+  }, [absences, timeFilter, eventFilter, specificDate, specificMember]);
 
   const displayAbsences = filteredAbsences.filter(a => activeTab === 'ativos' ? a.status === 'ativo' : a.status === 'inativo');
 
@@ -141,11 +160,36 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
         </div>
 
         <div className="flex items-center gap-2">
+          <label className="text-xs text-zinc-500 uppercase tracking-wider">Membro:</label>
+          <select
+            value={specificMember}
+            onChange={(e) => setSpecificMember(e.target.value)}
+            className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white outline-none focus:ring-1 focus:ring-emerald-500"
+          >
+            <option value="">Todos</option>
+            {uniqueNicks.map(nick => (
+              <option key={nick} value={nick}>{nick}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-zinc-500 uppercase tracking-wider">Data Específica:</label>
+          <input
+            type="date"
+            value={specificDate}
+            onChange={(e) => setSpecificDate(e.target.value)}
+            className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white outline-none focus:ring-1 focus:ring-emerald-500"
+          />
+        </div>
+
+        <div className="flex items-center gap-2">
           <label className="text-xs text-zinc-500 uppercase tracking-wider">Tempo:</label>
           <select
             value={timeFilter}
             onChange={(e) => setTimeFilter(e.target.value)}
-            className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white outline-none focus:ring-1 focus:ring-emerald-500"
+            disabled={!!specificDate}
+            className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
           >
             <option value="all">Todo o histórico</option>
             <option value="7">1 Semana</option>
@@ -165,7 +209,8 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
           <select
             value={eventFilter}
             onChange={(e) => setEventFilter(e.target.value)}
-            className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white outline-none focus:ring-1 focus:ring-emerald-500"
+            disabled={!!specificDate}
+            className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
           >
             <option value="all">Todos os eventos</option>
             <option value="5">Últimos 5</option>
@@ -176,11 +221,13 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
           </select>
         </div>
 
-        {(timeFilter !== 'all' || eventFilter !== 'all') && (
+        {(timeFilter !== 'all' || eventFilter !== 'all' || specificDate || specificMember) && (
           <button
             onClick={() => {
               setTimeFilter('all');
               setEventFilter('all');
+              setSpecificDate('');
+              setSpecificMember('');
             }}
             className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white transition-colors ml-auto"
           >
@@ -246,7 +293,7 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
                   </div>
                 </td>
                 <td className="px-6 py-4">
-                  <div className="flex flex-wrap gap-2">
+                  <div className={specificDate || specificMember ? "flex flex-col gap-2" : "flex flex-wrap gap-2"}>
                     {item.missedDates.map((miss: any, idx: number) => {
                       const type = miss.justification?.type;
                       let bgColor = 'bg-red-500/20 border-red-500/50 text-red-400';
@@ -254,18 +301,24 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
                       if (type === 'Em Observação') bgColor = 'bg-orange-500/20 border-orange-500/50 text-orange-400';
 
                       return (
-                        <button
-                          key={idx}
-                          onClick={() => {
-                            setSelectedAbsence({ ...miss, member_id: item.member_id, nick: item.nick });
-                            setJustificationType(miss.justification?.type || '');
-                            setJustificationNote(miss.justification?.note || '');
-                          }}
-                          className={`px-2 py-1 rounded border text-[10px] font-medium transition-all hover:scale-105 ${bgColor}`}
-                          title={`${getTournamentName(miss.tournament_type)}${miss.justification?.note ? `: ${miss.justification.note}` : ''}`}
-                        >
-                          {formatDate(miss.date)}
-                        </button>
+                        <div key={idx} className={specificDate || specificMember ? "flex items-center gap-2" : ""}>
+                          <button
+                            onClick={() => {
+                              setSelectedAbsence({ ...miss, member_id: item.member_id, nick: item.nick });
+                              setJustificationType(miss.justification?.type || '');
+                              setJustificationNote(miss.justification?.note || '');
+                            }}
+                            className={`px-2 py-1 rounded border text-[10px] font-medium transition-all hover:scale-105 ${bgColor}`}
+                            title={`${getTournamentName(miss.tournament_type)}${miss.justification?.note ? `: ${miss.justification.note}` : ''}`}
+                          >
+                            {formatDate(miss.date)} {(specificDate || specificMember) && `- ${getTournamentName(miss.tournament_type)}`}
+                          </button>
+                          {(specificDate || specificMember) && miss.justification?.note && (
+                            <span className="text-xs text-zinc-400 italic">
+                              "{miss.justification.note}"
+                            </span>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
