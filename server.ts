@@ -15,7 +15,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-me';
 app.use(express.json());
 
 // Setup Database
-const db = new Database('guild.db');
+let db = new Database('guild.db');
 
 const checkAndFixDatabase = () => {
   // Ensure tables exist
@@ -270,6 +270,141 @@ app.delete('/api/users/:id', authenticateToken, (req: any, res) => {
     db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
     res.json({ success: true });
   } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/sql', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  const { query } = req.body;
+  if (!query) return res.status(400).json({ error: 'Query is required' });
+  
+  try {
+    const stmt = db.prepare(query);
+    if (stmt.reader) {
+      const results = stmt.all();
+      res.json({ results });
+    } else {
+      const info = stmt.run();
+      res.json({ results: [info], message: 'Query executada com sucesso.' });
+    }
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.get('/api/admin/tables', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  try {
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
+    res.json(tables.map((t: any) => t.name));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/tables/:name/schema', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  try {
+    const schema = db.prepare(`PRAGMA table_info(${req.params.name})`).all();
+    res.json(schema);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/tables/:name/data', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  const limit = parseInt(req.query.limit as string) || 100;
+  const offset = parseInt(req.query.offset as string) || 0;
+  try {
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((t: any) => t.name);
+    if (!tables.includes(req.params.name)) {
+      return res.status(404).json({ error: 'Tabela não encontrada' });
+    }
+    
+    const data = db.prepare(`SELECT * FROM ${req.params.name} LIMIT ? OFFSET ?`).all(limit, offset);
+    const countRes = db.prepare(`SELECT COUNT(*) as count FROM ${req.params.name}`).get() as any;
+    res.json({ data, total: countRes.count });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/db/download', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  res.download('guild.db', `guild_backup_${new Date().toISOString().split('T')[0]}.db`);
+});
+
+app.post('/api/admin/db/backup', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  try {
+    if (!fs.existsSync('backups')) {
+      fs.mkdirSync('backups');
+    }
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupName = `guild_backup_${timestamp}.db`;
+    fs.copyFileSync('guild.db', `backups/${backupName}`);
+    res.json({ success: true, message: 'Backup criado com sucesso', filename: backupName });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/db/backups', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  try {
+    if (!fs.existsSync('backups')) {
+      return res.json([]);
+    }
+    const files = fs.readdirSync('backups').filter(f => f.endsWith('.db'));
+    const backups = files.map(f => {
+      const stats = fs.statSync(`backups/${f}`);
+      return {
+        filename: f,
+        size: stats.size,
+        date: stats.mtime
+      };
+    }).sort((a, b) => b.date.getTime() - a.date.getTime());
+    res.json(backups);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/db/restore/:filename', authenticateToken, (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  try {
+    const filename = req.params.filename;
+    const backupPath = `backups/${filename}`;
+    if (!fs.existsSync(backupPath)) {
+      return res.status(404).json({ error: 'Backup não encontrado' });
+    }
+    
+    db.close();
+    fs.copyFileSync(backupPath, 'guild.db');
+    db = new Database('guild.db');
+    checkAndFixDatabase();
+    res.json({ success: true, message: 'Backup restaurado com sucesso' });
+  } catch (e: any) {
+    if (!db.open) db = new Database('guild.db');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/db/upload-restore', authenticateToken, upload.single('file'), (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+  
+  try {
+    db.close();
+    fs.copyFileSync(req.file.path, 'guild.db');
+    db = new Database('guild.db');
+    checkAndFixDatabase();
+    fs.unlinkSync(req.file.path);
+    res.json({ success: true, message: 'Banco de dados restaurado com sucesso' });
+  } catch (e: any) {
+    if (!db.open) db = new Database('guild.db');
     res.status(500).json({ error: e.message });
   }
 });

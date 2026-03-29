@@ -5,7 +5,7 @@
 
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
 import React, { useState, useEffect } from 'react';
-import { Users, Shield, Activity, Swords, Trophy, CalendarX, LogOut, Menu, X, Settings, Gem, History, FileText } from 'lucide-react';
+import { Users, Shield, Activity, Swords, Trophy, CalendarX, LogOut, Menu, X, Settings, Gem, History, FileText, Database } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -24,6 +24,7 @@ import UsersAdmin from './pages/UsersAdmin';
 import Fenda from './pages/Fenda';
 import ImportsHistory from './pages/ImportsHistory';
 import StoredCSVs from './pages/StoredCSVs';
+import SQLEditor from './pages/SQLEditor';
 
 function Layout({ children, user, setAuth }: { children: React.ReactNode, user: any, setAuth: any }) {
   const navigate = useNavigate();
@@ -44,7 +45,8 @@ function Layout({ children, user, setAuth }: { children: React.ReactNode, user: 
     ...(user?.role === 'admin' ? [
       { name: 'Histórico', path: '/imports', icon: History },
       { name: 'Arquivos CSV', path: '/stored-csvs', icon: FileText },
-      { name: 'Usuários', path: '/users', icon: Settings }
+      { name: 'Usuários', path: '/users', icon: Settings },
+      { name: 'Editor SQL', path: '/sql', icon: Database }
     ] : []),
   ];
 
@@ -171,6 +173,7 @@ export default function App() {
         <Route path="/imports" element={<ProtectedRoute token={token} user={user} setAuth={setAuth}><ImportsHistory fetchApi={fetchApi} user={user} /></ProtectedRoute>} />
         <Route path="/stored-csvs" element={<ProtectedRoute token={token} user={user} setAuth={setAuth}><StoredCSVs fetchApi={fetchApi} user={user} /></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute token={token} user={user} setAuth={setAuth}><UsersAdmin fetchApi={fetchApi} user={user} /></ProtectedRoute>} />
+        <Route path="/sql" element={<ProtectedRoute token={token} user={user} setAuth={setAuth}>{user?.role === 'admin' ? <SQLEditor fetchApi={fetchApi} /> : <Navigate to="/" />}</ProtectedRoute>} />
       </Routes>
     </Router>
   );
