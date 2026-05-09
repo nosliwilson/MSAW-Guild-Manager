@@ -169,7 +169,7 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   // Run DB fix on login as requested
-  checkAndFixDatabase();
+  // checkAndFixDatabase();
   
   const { username, password } = req.body;
   const user = await prisma.user.findUnique({ where: { username } });
