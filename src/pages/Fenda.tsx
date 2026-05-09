@@ -7,7 +7,7 @@ import SortSelector from '../components/SortSelector';
 import Pagination from '../components/Pagination';
 import CSVImportButton from '../components/CSVImportButton';
 
-export default function Fenda({ fetchApi }: { fetchApi: any }) {
+export default function Fenda({ fetchApi, user }: { fetchApi: any, user: any }) {
   const [data, setData] = useState<any[]>([]);
   const [season, setSeason] = useState<number>(1);
   const [selectedSeason, setSelectedSeason] = useState<number | 'all'>('all');
@@ -29,6 +29,10 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
   const [sortCriteria, setSortCriteria] = useState<SortCriteria>('role');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(180);
+
+  const permissions = user?.permissions?.fenda || 'view';
+  const canEdit = permissions === 'edit' || permissions === 'full';
+  const canFull = permissions === 'full';
 
   const loadMembers = async () => {
     const res = await fetchApi('/api/members');
@@ -270,28 +274,32 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
             </div>
           </div>
           <div className="print-hidden flex items-center gap-2">
-            <CSVImportButton
-              type="fenda"
-              fetchApi={fetchApi}
-              onPreview={setImportPreview}
-              onUploading={setUploading}
-              disabled={uploading}
-            />
-            <button
-              onClick={() => setShowConfirm(true)}
-              className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg transition-colors"
-            >
-              <AlertTriangle className="w-4 h-4" />
-              Fechar Fenda
-            </button>
-            {season > 1 && (
-              <button
-                onClick={() => handleReopen()}
-                className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-lg transition-colors"
-                title="Desfazer Fechamento"
-              >
-                <RotateCcw className="w-4 h-4 text-amber-400" />
-              </button>
+            {canFull && (
+              <>
+                <CSVImportButton
+                  type="fenda"
+                  fetchApi={fetchApi}
+                  onPreview={setImportPreview}
+                  onUploading={setUploading}
+                  disabled={uploading}
+                />
+                <button
+                  onClick={() => setShowConfirm(true)}
+                  className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg transition-colors"
+                >
+                  <AlertTriangle className="w-4 h-4" />
+                  Fechar Fenda
+                </button>
+                {season > 1 && (
+                  <button
+                    onClick={() => handleReopen()}
+                    className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-lg transition-colors"
+                    title="Desfazer Fechamento"
+                  >
+                    <RotateCcw className="w-4 h-4 text-amber-400" />
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -386,7 +394,7 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
               </div>
             )}
 
-            {selectedDate !== 'all' && (
+            {canFull && selectedDate !== 'all' && (
               <button
                 onClick={() => {
                   handleDeleteByDate(selectedDate);
@@ -419,13 +427,15 @@ export default function Fenda({ fetchApi }: { fetchApi: any }) {
                   <td className="px-6 py-4 text-emerald-400 font-medium">{formatNumber(Number(item.crystals))}</td>
                   <td className="px-6 py-4">{formatDate(item.date)}</td>
                   <td className="px-6 py-4">
-                    <button
-                      onClick={() => handleDeleteByDate(item.date)}
-                      className="text-zinc-400 hover:text-red-400 flex items-center gap-1"
-                      title="Excluir todos os registros desta data (Rollback)"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {canFull && (
+                      <button
+                        onClick={() => handleDeleteByDate(item.date)}
+                        className="text-zinc-400 hover:text-red-400 flex items-center gap-1"
+                        title="Excluir todos os registros desta data (Rollback)"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

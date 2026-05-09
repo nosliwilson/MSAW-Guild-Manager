@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Trophy, Loader2 } from 'lucide-react';
 
-export default function Login({ setAuth }: { setAuth: (token: string, user: any) => void }) {
+export default function Login({ setAuth }: { setAuth: (user: any) => void }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -17,8 +17,12 @@ export default function Login({ setAuth }: { setAuth: (token: string, user: any)
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
         body: JSON.stringify({ username, password }),
+        credentials: 'include',
       });
 
       const data = await res.json();
@@ -27,7 +31,7 @@ export default function Login({ setAuth }: { setAuth: (token: string, user: any)
         throw new Error(data.error || 'Erro ao fazer login');
       }
 
-      setAuth(data.token, data.user);
+      setAuth(data.user);
       navigate('/');
     } catch (err: any) {
       setError(err.message);

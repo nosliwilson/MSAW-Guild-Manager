@@ -3,9 +3,11 @@ import { Settings, ShieldAlert, UserX, UserCheck, KeyRound, Trash2 } from 'lucid
 
 export default function UsersAdmin({ fetchApi, user }: { fetchApi: any, user: any }) {
   const [users, setUsers] = useState<any[]>([]);
+  const [roles, setRoles] = useState<any[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [newRole, setNewRole] = useState('user');
   
   const [resetId, setResetId] = useState<number | null>(null);
   const [resetPassword, setResetPassword] = useState('');
@@ -15,9 +17,19 @@ export default function UsersAdmin({ fetchApi, user }: { fetchApi: any, user: an
     setUsers(await res.json());
   };
 
+  const loadRoles = async () => {
+    try {
+      const res = await fetchApi('/api/roles');
+      setRoles(await res.json());
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
     if (user?.role === 'admin') {
       loadUsers();
+      loadRoles();
     }
   }, [fetchApi, user]);
 
@@ -35,10 +47,11 @@ export default function UsersAdmin({ fetchApi, user }: { fetchApi: any, user: an
     try {
       await fetchApi('/api/auth/register', {
         method: 'POST',
-        body: JSON.stringify({ username: newUsername, password: newPassword })
+        body: JSON.stringify({ username: newUsername, password: newPassword, role: newRole })
       });
       setNewUsername('');
       setNewPassword('');
+      setNewRole('user');
       setShowAdd(false);
       loadUsers();
     } catch (e: any) {
@@ -109,7 +122,7 @@ export default function UsersAdmin({ fetchApi, user }: { fetchApi: any, user: an
       </div>
 
       {showAdd && (
-        <form onSubmit={handleAdd} className="bg-zinc-900 p-4 rounded-xl border border-zinc-800 flex gap-4 items-end">
+        <form onSubmit={handleAdd} className="bg-zinc-900 p-4 rounded-xl border border-zinc-800 flex gap-4 items-end flex-wrap">
           <div>
             <label className="block text-sm text-zinc-400 mb-1">Usuário</label>
             <input
@@ -130,6 +143,18 @@ export default function UsersAdmin({ fetchApi, user }: { fetchApi: any, user: an
               className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
             />
           </div>
+          <div>
+            <label className="block text-sm text-zinc-400 mb-1">Cargo</label>
+            <select
+              value={newRole}
+              onChange={e => setNewRole(e.target.value)}
+              className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white"
+            >
+              {roles.map(r => (
+                <option key={r.id} value={r.name}>{r.name}</option>
+              ))}
+            </select>
+          </div>
           <div className="flex gap-2">
             <button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg">Salvar</button>
             <button type="button" onClick={() => setShowAdd(false)} className="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-lg">Cancelar</button>
@@ -144,7 +169,7 @@ export default function UsersAdmin({ fetchApi, user }: { fetchApi: any, user: an
               <th className="px-6 py-4 font-medium w-16 text-center">#</th>
               <th className="px-6 py-4 font-medium">ID</th>
               <th className="px-6 py-4 font-medium">Usuário</th>
-              <th className="px-6 py-4 font-medium">Papel</th>
+              <th className="px-6 py-4 font-medium">Cargo</th>
               <th className="px-6 py-4 font-medium">Status</th>
               <th className="px-6 py-4 font-medium">Ações</th>
             </tr>
@@ -162,8 +187,9 @@ export default function UsersAdmin({ fetchApi, user }: { fetchApi: any, user: an
                     disabled={u.id === user.id}
                     className="bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-sm text-white disabled:opacity-50"
                   >
-                    <option value="user">User</option>
-                    <option value="admin">Admin</option>
+                    {roles.map(r => (
+                      <option key={r.id} value={r.name}>{r.name}</option>
+                    ))}
                   </select>
                 </td>
                 <td className="px-6 py-4">

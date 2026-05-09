@@ -5,7 +5,7 @@
 
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
 import React, { useState, useEffect } from 'react';
-import { Users, Shield, Activity, Swords, Trophy, CalendarX, LogOut, Menu, X, Settings, Gem, History, FileText, Database } from 'lucide-react';
+import { Users, Shield, Activity, Swords, Trophy, CalendarX, LogOut, Menu, X, Settings, Gem, History, FileText, Database, UserCog } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -25,6 +25,7 @@ import Fenda from './pages/Fenda';
 import ImportsHistory from './pages/ImportsHistory';
 import StoredCSVs from './pages/StoredCSVs';
 import SQLEditor from './pages/SQLEditor';
+import SettingsPage from './pages/Settings';
 
 function Layout({ children, user, setAuth }: { children: React.ReactNode, user: any, setAuth: any }) {
   const navigate = useNavigate();
@@ -43,10 +44,7 @@ function Layout({ children, user, setAuth }: { children: React.ReactNode, user: 
     { name: 'Torneios', path: '/tournaments', icon: Swords },
     { name: 'Faltas', path: '/absences', icon: CalendarX },
     ...(user?.role === 'admin' ? [
-      { name: 'Histórico', path: '/imports', icon: History },
-      { name: 'Arquivos CSV', path: '/stored-csvs', icon: FileText },
-      { name: 'Usuários', path: '/users', icon: Settings },
-      { name: 'Editor SQL', path: '/sql', icon: Database }
+      { name: 'Configurações', path: '/settings', icon: Settings }
     ] : []),
   ];
 
@@ -120,37 +118,50 @@ function Layout({ children, user, setAuth }: { children: React.ReactNode, user: 
   );
 }
 
-function ProtectedRoute({ children, token, user, setAuth }: { children: React.ReactNode, token: string | null, user: any, setAuth: any }) {
-  if (!token) return <Navigate to="/login" replace />;
+function ProtectedRoute({ children, user, setAuth }: { children: React.ReactNode, user: any, setAuth: any }) {
+  if (!user) return <Navigate to="/login" replace />;
   return <Layout user={user} setAuth={setAuth}>{children}</Layout>;
 }
 
 export default function App() {
-  const [token, setTokenState] = useState<string | null>(localStorage.getItem('token'));
   const [user, setUserState] = useState<any>(JSON.parse(localStorage.getItem('user') || 'null'));
 
-  const setAuth = (newToken: string | null, newUser: any | null) => {
-    setTokenState(newToken);
+  const setAuth = (newUser: any | null) => {
     setUserState(newUser);
-    if (newToken) localStorage.setItem('token', newToken);
-    else localStorage.removeItem('token');
     if (newUser) localStorage.setItem('user', JSON.stringify(newUser));
     else localStorage.removeItem('user');
   };
 
+  useEffect(() => {
+    fetch('/api/auth/me', { credentials: 'include' })
+      .then(res => res.json())
+      .then(data => {
+        if (data.user) {
+          setAuth(data.user);
+        } else {
+          setAuth(null);
+        }
+      })
+      .catch(() => setAuth(null));
+  }, []);
+
   const fetchApi = async (url: string, options: RequestInit = {}) => {
     const headers = new Headers(options.headers);
-    if (token) headers.set('Authorization', `Bearer ${token}`);
+    headers.set('X-Requested-With', 'XMLHttpRequest');
     if (!(options.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json');
     } else {
       headers.delete('Content-Type'); // Let browser set boundary
     }
     
+    // Ensure cross-origin cookies are sent if necessary
+    options.credentials = 'include';
     const res = await fetch(url, { ...options, headers });
     if (res.status === 401 || res.status === 403) {
-      setAuth(null, null);
-      window.location.href = '/login';
+      setAuth(null);
+      if (window.location.pathname !== '/login') {
+         window.location.href = '/login';
+      }
       throw new Error('Unauthorized');
     }
     if (!res.ok) {
@@ -160,20 +171,25 @@ export default function App() {
     return res;
   };
 
+  const handleLogoutReq = async () => {
+    try {
+      await fetchApi('/api/auth/logout', { method: 'POST' });
+    } catch(e) {}
+    setAuth(null);
+    window.location.href = '/login';
+  };
+
   return (
     <Router>
       <Routes>
         <Route path="/login" element={<Login setAuth={setAuth} />} />
-        <Route path="/" element={<ProtectedRoute token={token} user={user} setAuth={setAuth}><Dashboard fetchApi={fetchApi} /></ProtectedRoute>} />
-        <Route path="/members" element={<ProtectedRoute token={token} user={user} setAuth={setAuth}><Members fetchApi={fetchApi} /></ProtectedRoute>} />
-        <Route path="/power" element={<ProtectedRoute token={token} user={user} setAuth={setAuth}><PowerHistory fetchApi={fetchApi} /></ProtectedRoute>} />
-        <Route path="/fenda" element={<ProtectedRoute token={token} user={user} setAuth={setAuth}><Fenda fetchApi={fetchApi} /></ProtectedRoute>} />
-        <Route path="/tournaments" element={<ProtectedRoute token={token} user={user} setAuth={setAuth}><Tournaments fetchApi={fetchApi} /></ProtectedRoute>} />
-        <Route path="/absences" element={<ProtectedRoute token={token} user={user} setAuth={setAuth}><Absences fetchApi={fetchApi} /></ProtectedRoute>} />
-        <Route path="/imports" element={<ProtectedRoute token={token} user={user} setAuth={setAuth}><ImportsHistory fetchApi={fetchApi} user={user} /></ProtectedRoute>} />
-        <Route path="/stored-csvs" element={<ProtectedRoute token={token} user={user} setAuth={setAuth}><StoredCSVs fetchApi={fetchApi} user={user} /></ProtectedRoute>} />
-        <Route path="/users" element={<ProtectedRoute token={token} user={user} setAuth={setAuth}><UsersAdmin fetchApi={fetchApi} user={user} /></ProtectedRoute>} />
-        <Route path="/sql" element={<ProtectedRoute token={token} user={user} setAuth={setAuth}>{user?.role === 'admin' ? <SQLEditor fetchApi={fetchApi} /> : <Navigate to="/" />}</ProtectedRoute>} />
+        <Route path="/" element={<ProtectedRoute user={user} setAuth={handleLogoutReq}><Dashboard fetchApi={fetchApi} /></ProtectedRoute>} />
+        <Route path="/members" element={<ProtectedRoute user={user} setAuth={handleLogoutReq}><Members fetchApi={fetchApi} user={user} /></ProtectedRoute>} />
+        <Route path="/power" element={<ProtectedRoute user={user} setAuth={handleLogoutReq}><PowerHistory fetchApi={fetchApi} /></ProtectedRoute>} />
+        <Route path="/fenda" element={<ProtectedRoute user={user} setAuth={handleLogoutReq}><Fenda fetchApi={fetchApi} user={user} /></ProtectedRoute>} />
+        <Route path="/tournaments" element={<ProtectedRoute user={user} setAuth={handleLogoutReq}><Tournaments fetchApi={fetchApi} user={user} /></ProtectedRoute>} />
+        <Route path="/absences" element={<ProtectedRoute user={user} setAuth={handleLogoutReq}><Absences fetchApi={fetchApi} user={user} /></ProtectedRoute>} />
+        <Route path="/settings" element={<ProtectedRoute user={user} setAuth={handleLogoutReq}><SettingsPage fetchApi={fetchApi} user={user} /></ProtectedRoute>} />
       </Routes>
     </Router>
   );

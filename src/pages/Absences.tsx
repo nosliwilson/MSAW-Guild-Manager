@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { CalendarX, Info, X, Check, AlertCircle, Filter, RotateCcw, Printer } from 'lucide-react';
 
-export default function Absences({ fetchApi }: { fetchApi: any }) {
+export default function Absences({ fetchApi, user }: { fetchApi: any, user: any }) {
   const [absences, setAbsences] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'ativos' | 'inativos'>('ativos');
   const [selectedAbsence, setSelectedAbsence] = useState<any>(null);
@@ -12,6 +12,10 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
   const [eventFilter, setEventFilter] = useState<string>('all');
   const [specificDate, setSpecificDate] = useState<string>('');
   const [specificMember, setSpecificMember] = useState<string>('');
+
+  const permissions = user?.permissions?.absences || 'view';
+  const canEdit = permissions === 'edit' || permissions === 'full';
+  const canFull = permissions === 'full';
 
   const loadAbsences = async () => {
     const res = await fetchApi('/api/absences');
@@ -311,11 +315,12 @@ export default function Absences({ fetchApi }: { fetchApi: any }) {
                         <div key={idx} className={specificDate || specificMember ? "flex items-center gap-2" : ""}>
                           <button
                             onClick={() => {
+                              if (!canEdit) return;
                               setSelectedAbsence({ ...miss, member_id: item.member_id, nick: item.nick });
                               setJustificationType(miss.justification?.type || '');
                               setJustificationNote(miss.justification?.note || '');
                             }}
-                            className={`px-2 py-1 rounded border text-[10px] font-medium transition-all hover:scale-105 ${bgColor}`}
+                            className={`px-2 py-1 rounded border text-[10px] font-medium transition-all ${canEdit ? 'hover:scale-105 cursor-pointer' : 'cursor-default'} ${bgColor}`}
                             title={`${getTournamentName(miss.tournament_type)}${miss.justification?.note ? `: ${miss.justification.note}` : ''}`}
                           >
                             {formatDate(miss.date)} {(specificDate || specificMember) && `- ${getTournamentName(miss.tournament_type)}`}

@@ -1,164 +1,97 @@
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
-import Database from 'better-sqlite3';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import { parse } from 'csv-parse';
 import fs from 'fs';
 import path from 'path';
+import { PrismaClient } from '@prisma/client';
+import cookieParser from 'cookie-parser';
 
 const app = express();
 const PORT = 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-me';
 
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self' https: http: 'unsafe-inline' 'unsafe-eval' ws: wss:; img-src 'self' data: https: http:; font-src 'self' data: https: http:; frame-ancestors 'self' https://*.run.app https://*.google.com https://*.aistudio.google.com https://*.googleusercontent.com;"
+  );
+  next();
+});
+
 app.use(express.json());
+app.use(cookieParser());
 
 // Setup Database
-let db = new Database('guild.db');
+const prisma = new PrismaClient();
 
-const checkAndFixDatabase = () => {
-  // Ensure tables exist
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      role TEXT DEFAULT 'user',
-      is_blocked INTEGER DEFAULT 0
-    );
+const checkAndFixDatabase = async () => {
+  // We will keep the raw SQL for initial SQLite setup if needed, 
+  // but Prisma handles schema creation via `prisma db push` or `prisma migrate`.
+  // For this refactoring, we'll assume Prisma handles the schema, 
+  // but we'll keep the default admin creation using Prisma.
 
-    CREATE TABLE IF NOT EXISTS members (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      nick TEXT UNIQUE NOT NULL,
-      status TEXT DEFAULT 'ativo',
-      entry_date TEXT NOT NULL,
-      exit_date TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS member_roles (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      member_id INTEGER NOT NULL,
-      role TEXT NOT NULL,
-      start_date TEXT NOT NULL,
-      end_date TEXT,
-      FOREIGN KEY (member_id) REFERENCES members(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS power_history (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      member_id INTEGER NOT NULL,
-      power BIGINT NOT NULL,
-      date TEXT NOT NULL,
-      FOREIGN KEY (member_id) REFERENCES members(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS guerra_total (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      member_id INTEGER NOT NULL,
-      power BIGINT NOT NULL,
-      date TEXT NOT NULL,
-      FOREIGN KEY (member_id) REFERENCES members(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS torneio_celeste (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      member_id INTEGER NOT NULL,
-      guild TEXT NOT NULL,
-      score INTEGER NOT NULL,
-      field TEXT NOT NULL,
-      date TEXT NOT NULL,
-      FOREIGN KEY (member_id) REFERENCES members(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS pico_gloria (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      member_id INTEGER NOT NULL,
-      round INTEGER NOT NULL,
-      score INTEGER NOT NULL,
-      team TEXT DEFAULT 'Livre',
-      date TEXT NOT NULL,
-      FOREIGN KEY (member_id) REFERENCES members(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    );
-
-    INSERT OR IGNORE INTO settings (key, value) VALUES ('fenda_season', '1');
-
-    CREATE TABLE IF NOT EXISTS fenda_history (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      member_id INTEGER NOT NULL,
-      crystals BIGINT NOT NULL,
-      date TEXT NOT NULL,
-      season INTEGER NOT NULL,
-      FOREIGN KEY (member_id) REFERENCES members(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS rift_seasons (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      season_number INTEGER NOT NULL UNIQUE,
-      closed_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS imports (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      type TEXT NOT NULL,
-      date TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS absence_justifications (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      member_id INTEGER NOT NULL,
-      date TEXT NOT NULL,
-      tournament_type TEXT NOT NULL,
-      type TEXT NOT NULL, -- 'Abonado' or 'Em Observação'
-      note TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(member_id, date, tournament_type),
-      FOREIGN KEY (member_id) REFERENCES members(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS stored_csvs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      filename TEXT NOT NULL,
-      original_name TEXT NOT NULL,
-      type TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-
-  // Ensure specific columns exist
-  const checkColumn = (table: string, column: string, typeDef: string) => {
-    try {
-      const columns = db.prepare(`PRAGMA table_info(${table})`).all() as any[];
-      if (!columns.some(c => c.name === column)) {
-        db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${typeDef}`);
-        console.log(`[DB Fix] Added column ${column} to ${table}`);
-      }
-    } catch (e) {
-      console.error(`[DB Fix] Error checking/adding column ${column} to ${table}:`, e);
+  try {
+    // Create default admin if not exists
+    const adminExists = await prisma.user.findUnique({ where: { username: 'admin' } });
+    if (!adminExists) {
+      const hash = await bcrypt.hash('admin123', 10);
+      await prisma.user.create({
+        data: { username: 'admin', password_hash: hash, role: 'admin' }
+      });
+      console.log('[DB Fix] Created default admin user');
     }
-  };
+    
+    // Ensure default settings exist
+    const fendaSeason = await prisma.setting.findUnique({ where: { key: 'fenda_season' } });
+    if (!fendaSeason) {
+      await prisma.setting.create({
+        data: { key: 'fenda_season', value: '1' }
+      });
+    }
 
-  const tablesToAlter = ['members', 'power_history', 'guerra_total', 'torneio_celeste', 'pico_gloria', 'fenda_history'];
-  for (const table of tablesToAlter) {
-    checkColumn(table, 'import_id', 'INTEGER REFERENCES imports(id)');
-  }
+    // Initialize default system roles
+    const adminRole = await prisma.systemRole.findUnique({ where: { name: 'admin' } });
+    if (!adminRole) {
+      await prisma.systemRole.create({
+        data: {
+          name: 'admin',
+          permissions: JSON.stringify({
+            members: { view: true, import: true, edit: true, delete: true },
+            fenda: { view: true, import: true, edit: true, delete: true },
+            tournaments: { view: true, import: true, edit: true, delete: true },
+            absences: { view: true, import: true, edit: true, delete: true },
+            settings: { view: true, import: true, edit: true, delete: true }
+          })
+        }
+      });
+    }
 
-  checkColumn('pico_gloria', 'team', "TEXT DEFAULT 'Livre'");
+    const userRole = await prisma.systemRole.findUnique({ where: { name: 'user' } });
+    if (!userRole) {
+      await prisma.systemRole.create({
+        data: {
+          name: 'user',
+          permissions: JSON.stringify({
+            members: { view: true, import: false, edit: false, delete: false },
+            fenda: { view: true, import: false, edit: false, delete: false },
+            tournaments: { view: true, import: false, edit: false, delete: false },
+            absences: { view: true, import: false, edit: false, delete: false },
+            settings: { view: false, import: false, edit: false, delete: false }
+          })
+        }
+      });
+    }
 
-  // Create default admin if not exists
-  const adminExists = db.prepare('SELECT * FROM users WHERE username = ?').get('admin');
-  if (!adminExists) {
-    const hash = bcrypt.hashSync('admin123', 10);
-    db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('admin', hash, 'admin');
-    console.log('[DB Fix] Created default admin user');
+  } catch (e) {
+    console.error('[DB Fix] Error initializing database:', e);
   }
 };
 
@@ -175,8 +108,14 @@ if (!fs.existsSync('uploads/csv')) {
 
 // Auth Middleware
 const authenticateToken = (req: any, res: any, next: any) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+    const requestedWith = req.headers['x-requested-with'];
+    if (requestedWith !== 'XMLHttpRequest') {
+      return res.status(403).json({ error: 'CSRF protection check failed' });
+    }
+  }
+
+  const token = req.cookies.token || (req.headers['authorization'] && req.headers['authorization'].split(' ')[1]);
   if (token == null) return res.sendStatus(401);
 
   jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
@@ -186,146 +125,324 @@ const authenticateToken = (req: any, res: any, next: any) => {
   });
 };
 
+const checkPermission = (areaOrFn: string | ((req: any) => string), requiredLevel: 'view' | 'edit' | 'full') => {
+  return async (req: any, res: any, next: any) => {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: req.user.id }
+      });
+      
+      if (!user) return res.status(403).json({ error: 'Acesso negado' });
+      
+      const systemRole = await prisma.systemRole.findUnique({ where: { name: user.role } });
+      if (!systemRole) return res.status(403).json({ error: 'Acesso negado' });
+      
+      const permissions = JSON.parse(systemRole.permissions);
+      const area = typeof areaOrFn === 'function' ? areaOrFn(req) : areaOrFn;
+      
+      // Map upload types to permission areas
+      let mappedArea = area;
+      if (['guerra_total', 'torneio_celeste', 'pico_gloria'].includes(area)) {
+        mappedArea = 'tournaments';
+      }
+      
+      const userLevel = permissions[mappedArea] || 'none';
+      
+      if (userLevel === 'none') return res.status(403).json({ error: 'Acesso negado' });
+      if (requiredLevel === 'full' && userLevel !== 'full') return res.status(403).json({ error: 'Acesso negado' });
+      if (requiredLevel === 'edit' && userLevel !== 'edit' && userLevel !== 'full') return res.status(403).json({ error: 'Acesso negado' });
+      
+      next();
+    } catch (e) {
+      res.status(500).json({ error: 'Erro ao verificar permissões' });
+    }
+  };
+};
+
 // API Routes
 
 // Auth
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
+  const requestedWith = req.headers['x-requested-with'];
+  if (requestedWith !== 'XMLHttpRequest') {
+    return res.status(403).json({ error: 'CSRF protection check failed' });
+  }
+
   // Run DB fix on login as requested
   checkAndFixDatabase();
   
   const { username, password } = req.body;
-  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username) as any;
+  const user = await prisma.user.findUnique({ where: { username } });
   
   if (!user) return res.status(400).json({ error: 'Usuário não encontrado' });
   if (user.is_blocked) return res.status(403).json({ error: 'Usuário bloqueado' });
   
-  if (bcrypt.compareSync(password, user.password_hash)) {
+  if (await bcrypt.compare(password, user.password_hash)) {
     const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
-    res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
+    
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none',
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    });
+    
+    // Fetch role permissions
+    const systemRole = await prisma.systemRole.findUnique({ where: { name: user.role } });
+    const permissions = systemRole ? JSON.parse(systemRole.permissions) : null;
+
+    res.json({ user: { id: user.id, username: user.username, role: user.role, permissions } });
   } else {
     res.status(400).json({ error: 'Senha incorreta' });
   }
 });
 
-app.post('/api/auth/register', authenticateToken, (req: any, res) => {
+app.post('/api/auth/logout', (req, res) => {
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'none'
+  });
+  res.json({ success: true });
+});
+
+app.get('/api/auth/me', authenticateToken, async (req: any, res) => {
+  const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+  if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+  if (user.is_blocked) return res.status(403).json({ error: 'Usuário bloqueado' });
+  
+  const systemRole = await prisma.systemRole.findUnique({ where: { name: user.role } });
+  const permissions = systemRole ? JSON.parse(systemRole.permissions) : null;
+  
+  res.json({ user: { id: user.id, username: user.username, role: user.role, permissions } });
+});
+
+app.post('/api/auth/register', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Apenas admins podem registrar usuários' });
-  const { username, password } = req.body;
+  const { username, password, role = 'user' } = req.body;
+  
+  // Validate role
+  const roleExists = await prisma.systemRole.findUnique({ where: { name: role } });
+  if (!roleExists) return res.status(400).json({ error: 'Cargo inválido' });
+
   try {
-    const hash = bcrypt.hashSync(password, 10);
-    db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run(username, hash);
+    const hash = await bcrypt.hash(password, 10);
+    await prisma.user.create({
+      data: { username, password_hash: hash, role }
+    });
     res.json({ success: true });
   } catch (e) {
     res.status(400).json({ error: 'Usuário já existe' });
   }
 });
 
-app.get('/api/users', authenticateToken, (req: any, res) => {
+// --- System Roles API ---
+
+app.get('/api/roles', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
-  const users = db.prepare('SELECT id, username, role, is_blocked FROM users').all();
+  const roles = await prisma.systemRole.findMany();
+  res.json(roles);
+});
+
+app.post('/api/roles', authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  const { name, permissions } = req.body;
+  if (!name || !permissions) return res.status(400).json({ error: 'Nome e permissões são obrigatórios' });
+  
+  try {
+    const role = await prisma.systemRole.create({
+      data: { name, permissions: JSON.stringify(permissions) }
+    });
+    res.json(role);
+  } catch (e) {
+    res.status(400).json({ error: 'Erro ao criar cargo. Nome pode já existir.' });
+  }
+});
+
+app.put('/api/roles/:id', authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  const { name, permissions } = req.body;
+  const id = parseInt(req.params.id);
+  
+  try {
+    const role = await prisma.systemRole.update({
+      where: { id },
+      data: { name, permissions: JSON.stringify(permissions) }
+    });
+    res.json(role);
+  } catch (e) {
+    res.status(400).json({ error: 'Erro ao atualizar cargo.' });
+  }
+});
+
+app.delete('/api/roles/:id', authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  const id = parseInt(req.params.id);
+  
+  try {
+    const role = await prisma.systemRole.findUnique({ where: { id } });
+    if (role?.name === 'admin' || role?.name === 'user') {
+      return res.status(400).json({ error: 'Não é possível excluir cargos padrão' });
+    }
+    
+    // Check if any users have this role
+    const usersWithRole = await prisma.user.count({ where: { role: role?.name } });
+    if (usersWithRole > 0) {
+      return res.status(400).json({ error: 'Não é possível excluir um cargo que está em uso por usuários' });
+    }
+
+    await prisma.systemRole.delete({ where: { id } });
+    res.json({ success: true });
+  } catch (e) {
+    res.status(400).json({ error: 'Erro ao excluir cargo.' });
+  }
+});
+
+app.get('/api/users', authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  const users = await prisma.user.findMany({
+    select: { id: true, username: true, role: true, is_blocked: true }
+  });
   res.json(users);
 });
 
-app.post('/api/users/:id/block', authenticateToken, (req: any, res) => {
+app.post('/api/users/:id/block', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   const { blocked } = req.body;
-  db.prepare('UPDATE users SET is_blocked = ? WHERE id = ?').run(blocked ? 1 : 0, req.params.id);
+  await prisma.user.update({
+    where: { id: parseInt(req.params.id) },
+    data: { is_blocked: blocked ? 1 : 0 }
+  });
   res.json({ success: true });
 });
 
-app.post('/api/users/:id/role', authenticateToken, (req: any, res) => {
+app.post('/api/users/:id/role', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   const { role } = req.body;
-  if (role !== 'admin' && role !== 'user') return res.status(400).json({ error: 'Papel inválido' });
   
-  if (role === 'user') {
-    const adminCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'").get() as any;
-    const targetUser = db.prepare("SELECT role FROM users WHERE id = ?").get(req.params.id) as any;
-    if (targetUser && targetUser.role === 'admin' && adminCount.count <= 1) {
+  const roleExists = await prisma.systemRole.findUnique({ where: { name: role } });
+  if (!roleExists) return res.status(400).json({ error: 'Cargo inválido' });
+  
+  if (role !== 'admin') {
+    const adminCount = await prisma.user.count({ where: { role: 'admin' } });
+    const targetUser = await prisma.user.findUnique({ where: { id: parseInt(req.params.id) } });
+    if (targetUser && targetUser.role === 'admin' && adminCount <= 1) {
       return res.status(400).json({ error: 'Não é possível remover o último administrador' });
     }
   }
   
-  db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, req.params.id);
+  await prisma.user.update({
+    where: { id: parseInt(req.params.id) },
+    data: { role }
+  });
   res.json({ success: true });
 });
 
-app.post('/api/users/:id/reset-password', authenticateToken, (req: any, res) => {
+app.post('/api/users/:id/reset-password', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   const { newPassword } = req.body;
-  const hash = bcrypt.hashSync(newPassword, 10);
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, req.params.id);
+  const hash = await bcrypt.hash(newPassword, 10);
+  await prisma.user.update({
+    where: { id: parseInt(req.params.id) },
+    data: { password_hash: hash }
+  });
   res.json({ success: true });
 });
 
-app.delete('/api/users/:id', authenticateToken, (req: any, res) => {
+app.delete('/api/users/:id', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   
   try {
-    const adminCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'").get() as any;
-    const targetUser = db.prepare("SELECT role FROM users WHERE id = ?").get(req.params.id) as any;
-    if (targetUser && targetUser.role === 'admin' && adminCount.count <= 1) {
+    const adminCount = await prisma.user.count({ where: { role: 'admin' } });
+    const targetUser = await prisma.user.findUnique({ where: { id: parseInt(req.params.id) } });
+    if (targetUser && targetUser.role === 'admin' && adminCount <= 1) {
       return res.status(400).json({ error: 'Não é possível excluir o último administrador' });
     }
     
-    db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+    await prisma.user.delete({ where: { id: parseInt(req.params.id) } });
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.post('/api/admin/sql', authenticateToken, (req: any, res) => {
+app.post('/api/admin/sql', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   const { query } = req.body;
   if (!query) return res.status(400).json({ error: 'Query is required' });
   
   try {
-    const stmt = db.prepare(query);
-    if (stmt.reader) {
-      const results = stmt.all();
-      res.json({ results });
+    const isSelect = query.trim().toUpperCase().startsWith('SELECT') || query.trim().toUpperCase().startsWith('PRAGMA');
+    if (isSelect) {
+      const results = await prisma.$queryRawUnsafe(query);
+      
+      // Convert BigInt to string for JSON serialization
+      const serializedResults = Array.isArray(results) ? results.map((row: any) => {
+        const newRow: any = {};
+        for (const key in row) {
+          newRow[key] = typeof row[key] === 'bigint' ? row[key].toString() : row[key];
+        }
+        return newRow;
+      }) : results;
+      
+      res.json({ results: serializedResults });
     } else {
-      const info = stmt.run();
-      res.json({ results: [info], message: 'Query executada com sucesso.' });
+      const info = await prisma.$executeRawUnsafe(query);
+      res.json({ results: [{ changes: info }], message: 'Query executada com sucesso.' });
     }
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
 });
 
-app.get('/api/admin/tables', authenticateToken, (req: any, res) => {
+app.get('/api/admin/tables', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   try {
-    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
+    // Note: This query is specific to SQLite. If migrating to Postgres/MySQL, this needs adjusting.
+    // For a generic approach, we'd need to check the provider, but since we are prepping for migration,
+    // we'll keep the SQLite query for now as the current DB is SQLite.
+    // A more robust way for Prisma would be to read the Prisma schema, but this is a raw DB explorer.
+    const tables: any[] = await prisma.$queryRawUnsafe("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");
     res.json(tables.map((t: any) => t.name));
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.get('/api/admin/tables/:name/schema', authenticateToken, (req: any, res) => {
+app.get('/api/admin/tables/:name/schema', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   try {
-    const schema = db.prepare(`PRAGMA table_info(${req.params.name})`).all();
+    // Specific to SQLite
+    const schema = await prisma.$queryRawUnsafe(`PRAGMA table_info(${req.params.name})`);
     res.json(schema);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.get('/api/admin/tables/:name/data', authenticateToken, (req: any, res) => {
+app.get('/api/admin/tables/:name/data', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   const limit = parseInt(req.query.limit as string) || 100;
   const offset = parseInt(req.query.offset as string) || 0;
   try {
-    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((t: any) => t.name);
-    if (!tables.includes(req.params.name)) {
+    const tables: any[] = await prisma.$queryRawUnsafe("SELECT name FROM sqlite_master WHERE type='table'");
+    const tableNames = tables.map((t: any) => t.name);
+    if (!tableNames.includes(req.params.name)) {
       return res.status(404).json({ error: 'Tabela não encontrada' });
     }
     
-    const data = db.prepare(`SELECT * FROM ${req.params.name} LIMIT ? OFFSET ?`).all(limit, offset);
-    const countRes = db.prepare(`SELECT COUNT(*) as count FROM ${req.params.name}`).get() as any;
-    res.json({ data, total: countRes.count });
+    const data: any[] = await prisma.$queryRawUnsafe(`SELECT * FROM ${req.params.name} LIMIT ${limit} OFFSET ${offset}`);
+    const countRes: any[] = await prisma.$queryRawUnsafe(`SELECT COUNT(*) as count FROM ${req.params.name}`);
+    
+    const serializedData = data.map((row: any) => {
+      const newRow: any = {};
+      for (const key in row) {
+        newRow[key] = typeof row[key] === 'bigint' ? row[key].toString() : row[key];
+      }
+      return newRow;
+    });
+    
+    res.json({ data: serializedData, total: Number(countRes[0].count) });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -372,98 +489,237 @@ app.get('/api/admin/db/backups', authenticateToken, (req: any, res) => {
   }
 });
 
-app.post('/api/admin/db/restore/:filename', authenticateToken, (req: any, res) => {
+app.post('/api/admin/db/restore/:filename', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   try {
-    const filename = req.params.filename;
+    const filename = path.basename(req.params.filename);
     const backupPath = `backups/${filename}`;
     if (!fs.existsSync(backupPath)) {
       return res.status(404).json({ error: 'Backup não encontrado' });
     }
     
-    db.close();
+    // Disconnect Prisma before replacing the file
+    await prisma.$disconnect();
     fs.copyFileSync(backupPath, 'guild.db');
-    db = new Database('guild.db');
-    checkAndFixDatabase();
+    // Reconnect Prisma
+    await prisma.$connect();
+    await checkAndFixDatabase();
     res.json({ success: true, message: 'Backup restaurado com sucesso' });
   } catch (e: any) {
-    if (!db.open) db = new Database('guild.db');
+    await prisma.$connect(); // Try to reconnect in case of error
     res.status(500).json({ error: e.message });
   }
 });
 
-app.post('/api/admin/db/upload-restore', authenticateToken, upload.single('file'), (req: any, res) => {
+app.post('/api/admin/db/upload-restore', authenticateToken, upload.single('file'), async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
   
   try {
-    db.close();
+    // Disconnect Prisma before replacing the file
+    await prisma.$disconnect();
     fs.copyFileSync(req.file.path, 'guild.db');
-    db = new Database('guild.db');
-    checkAndFixDatabase();
+    // Reconnect Prisma
+    await prisma.$connect();
+    await checkAndFixDatabase();
     fs.unlinkSync(req.file.path);
     res.json({ success: true, message: 'Banco de dados restaurado com sucesso' });
   } catch (e: any) {
-    if (!db.open) db = new Database('guild.db');
+    await prisma.$connect(); // Try to reconnect in case of error
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/db/export', authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  try {
+    const data = {
+      users: await prisma.user.findMany(),
+      settings: await prisma.setting.findMany(),
+      members: await prisma.member.findMany(),
+      memberRoles: await prisma.memberRole.findMany(),
+      powerHistory: await prisma.powerHistory.findMany(),
+      guerraTotal: await prisma.guerraTotal.findMany(),
+      torneioCeleste: await prisma.torneioCeleste.findMany(),
+      picoGloria: await prisma.picoGloria.findMany(),
+      fendaHistory: await prisma.fendaHistory.findMany(),
+      riftSeasons: await prisma.riftSeason.findMany(),
+      absenceJustifications: await prisma.absenceJustification.findMany(),
+    };
+    
+    // Convert BigInt to string
+    const serializeBigInt = (obj: any): any => {
+      if (obj === null || obj === undefined) return obj;
+      if (typeof obj === 'bigint') return obj.toString();
+      if (Array.isArray(obj)) return obj.map(serializeBigInt);
+      if (typeof obj === 'object') {
+        const result: any = {};
+        for (const key in obj) {
+          result[key] = serializeBigInt(obj[key]);
+        }
+        return result;
+      }
+      return obj;
+    };
+    
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', 'attachment; filename=database_export.json');
+    res.send(JSON.stringify(serializeBigInt(data), null, 2));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/db/import', authenticateToken, upload.single('file'), async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+  
+  try {
+    const fileContent = fs.readFileSync(req.file.path, 'utf-8');
+    const data = JSON.parse(fileContent);
+    
+    // Delete all existing data first (in reverse order of dependencies)
+    await prisma.$transaction([
+      prisma.absenceJustification.deleteMany(),
+      prisma.fendaHistory.deleteMany(),
+      prisma.picoGloria.deleteMany(),
+      prisma.torneioCeleste.deleteMany(),
+      prisma.guerraTotal.deleteMany(),
+      prisma.powerHistory.deleteMany(),
+      prisma.memberRole.deleteMany(),
+      prisma.member.deleteMany(),
+      prisma.riftSeason.deleteMany(),
+      prisma.setting.deleteMany(),
+      prisma.user.deleteMany(),
+    ]);
+
+    // Import data
+    if (data.users && data.users.length > 0) await prisma.user.createMany({ data: data.users });
+    if (data.settings && data.settings.length > 0) await prisma.setting.createMany({ data: data.settings });
+    if (data.riftSeasons && data.riftSeasons.length > 0) await prisma.riftSeason.createMany({ data: data.riftSeasons });
+    
+    if (data.members && data.members.length > 0) await prisma.member.createMany({ data: data.members });
+    
+    if (data.memberRoles && data.memberRoles.length > 0) await prisma.memberRole.createMany({ data: data.memberRoles });
+    
+    // Convert string back to BigInt for BigInt fields
+    const mapBigInt = (arr: any[], fields: string[]) => arr.map(item => {
+      const newItem = { ...item };
+      for (const field of fields) {
+        if (newItem[field] !== undefined && newItem[field] !== null) {
+          newItem[field] = BigInt(newItem[field]);
+        }
+      }
+      return newItem;
+    });
+
+    if (data.powerHistory && data.powerHistory.length > 0) {
+      await prisma.powerHistory.createMany({ data: mapBigInt(data.powerHistory, ['power']) });
+    }
+    if (data.guerraTotal && data.guerraTotal.length > 0) {
+      await prisma.guerraTotal.createMany({ data: mapBigInt(data.guerraTotal, ['power']) });
+    }
+    if (data.torneioCeleste && data.torneioCeleste.length > 0) await prisma.torneioCeleste.createMany({ data: data.torneioCeleste });
+    if (data.picoGloria && data.picoGloria.length > 0) await prisma.picoGloria.createMany({ data: data.picoGloria });
+    if (data.fendaHistory && data.fendaHistory.length > 0) {
+      await prisma.fendaHistory.createMany({ data: mapBigInt(data.fendaHistory, ['crystals']) });
+    }
+    if (data.absenceJustifications && data.absenceJustifications.length > 0) await prisma.absenceJustification.createMany({ data: data.absenceJustifications });
+    
+    fs.unlinkSync(req.file.path);
+    res.json({ success: true, message: 'Dados importados com sucesso' });
+  } catch (e: any) {
+    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     res.status(500).json({ error: e.message });
   }
 });
 
 // Members
-app.get('/api/members', authenticateToken, (req, res) => {
-  const members = db.prepare(`
-    SELECT m.*, 
-           COALESCE((SELECT role FROM member_roles WHERE member_id = m.id AND end_date IS NULL ORDER BY start_date DESC LIMIT 1), 'Membro') as role,
-           COALESCE((SELECT power FROM power_history WHERE member_id = m.id ORDER BY date DESC LIMIT 1), 0) as power
-    FROM members m
-  `).all();
-  res.json(members);
+app.get('/api/members', authenticateToken, checkPermission('members', 'view'), async (req, res) => {
+  const members = await prisma.member.findMany({
+    include: {
+      memberRoles: {
+        where: { end_date: null },
+        orderBy: { start_date: 'desc' },
+        take: 1
+      },
+      powerHistory: {
+        orderBy: { date: 'desc' },
+        take: 1
+      }
+    }
+  });
+
+  const formattedMembers = members.map(m => ({
+    ...m,
+    role: m.memberRoles.length > 0 ? m.memberRoles[0].role : 'Membro',
+    power: m.powerHistory.length > 0 ? m.powerHistory[0].power.toString() : 0,
+    memberRoles: undefined,
+    powerHistory: undefined
+  }));
+
+  res.json(formattedMembers);
 });
 
-app.post('/api/members', authenticateToken, (req, res) => {
+app.post('/api/members', authenticateToken, checkPermission('members', 'edit'), async (req, res) => {
   const { nick, entry_date } = req.body;
   try {
-    const result = db.prepare('INSERT INTO members (nick, entry_date) VALUES (?, ?)').run(nick, entry_date);
-    res.json({ id: result.lastInsertRowid });
+    const result = await prisma.member.create({
+      data: { nick, entry_date }
+    });
+    res.json({ id: result.id });
   } catch (e) {
     res.status(400).json({ error: 'Membro já existe' });
   }
 });
 
-app.put('/api/members/:id', authenticateToken, (req, res) => {
+app.put('/api/members/:id', authenticateToken, checkPermission('members', 'edit'), async (req, res) => {
   const { status, exit_date } = req.body;
-  db.prepare('UPDATE members SET status = ?, exit_date = ? WHERE id = ?').run(status, exit_date, req.params.id);
+  await prisma.member.update({
+    where: { id: parseInt(req.params.id) },
+    data: { status, exit_date }
+  });
   res.json({ success: true });
 });
 
-app.get('/api/members/:id/roles', authenticateToken, (req, res) => {
-  const roles = db.prepare('SELECT * FROM member_roles WHERE member_id = ? ORDER BY start_date DESC').all(req.params.id);
+app.get('/api/members/:id/roles', authenticateToken, checkPermission('members', 'view'), async (req, res) => {
+  const roles = await prisma.memberRole.findMany({
+    where: { member_id: parseInt(req.params.id) },
+    orderBy: { start_date: 'desc' }
+  });
   res.json(roles);
 });
 
-app.post('/api/members/:id/roles', authenticateToken, (req, res) => {
+app.post('/api/members/:id/roles', authenticateToken, checkPermission('members', 'edit'), async (req, res) => {
   const { role, start_date } = req.body;
+  const memberId = parseInt(req.params.id);
   
-  // Close previous role if exists
-  db.prepare('UPDATE member_roles SET end_date = ? WHERE member_id = ? AND end_date IS NULL').run(start_date, req.params.id);
+  await prisma.$transaction([
+    prisma.memberRole.updateMany({
+      where: { member_id: memberId, end_date: null },
+      data: { end_date: start_date }
+    }),
+    prisma.memberRole.create({
+      data: { member_id: memberId, role, start_date }
+    })
+  ]);
   
-  db.prepare('INSERT INTO member_roles (member_id, role, start_date) VALUES (?, ?, ?)').run(req.params.id, role, start_date);
   res.json({ success: true });
 });
 
-app.delete('/api/members/:id', authenticateToken, (req: any, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
-  const id = req.params.id;
+app.delete('/api/members/:id', authenticateToken, checkPermission('members', 'full'), async (req: any, res) => {
+  const id = parseInt(req.params.id);
   try {
-    db.transaction(() => {
-      db.prepare('DELETE FROM power_history WHERE member_id = ?').run(id);
-      db.prepare('DELETE FROM guerra_total WHERE member_id = ?').run(id);
-      db.prepare('DELETE FROM torneio_celeste WHERE member_id = ?').run(id);
-      db.prepare('DELETE FROM pico_gloria WHERE member_id = ?').run(id);
-      db.prepare('DELETE FROM fenda_history WHERE member_id = ?').run(id);
-      db.prepare('DELETE FROM member_roles WHERE member_id = ?').run(id);
-      db.prepare('DELETE FROM members WHERE id = ?').run(id);
-    })();
+    await prisma.$transaction([
+      prisma.powerHistory.deleteMany({ where: { member_id: id } }),
+      prisma.guerraTotal.deleteMany({ where: { member_id: id } }),
+      prisma.torneioCeleste.deleteMany({ where: { member_id: id } }),
+      prisma.picoGloria.deleteMany({ where: { member_id: id } }),
+      prisma.fendaHistory.deleteMany({ where: { member_id: id } }),
+      prisma.memberRole.deleteMany({ where: { member_id: id } }),
+      prisma.absenceJustification.deleteMany({ where: { member_id: id } }),
+      prisma.member.delete({ where: { id } })
+    ]);
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -471,51 +727,64 @@ app.delete('/api/members/:id', authenticateToken, (req: any, res) => {
 });
 
 // Power History
-app.get('/api/power/compare', authenticateToken, (req, res) => {
+app.get('/api/power/compare', authenticateToken, async (req, res) => {
   const { start, end } = req.query;
   if (!start || !end) return res.status(400).json({ error: 'Datas start e end são obrigatórias' });
 
-  const data = db.prepare(`
+  const data = await prisma.$queryRaw`
     SELECT 
       m.nick,
       m.status,
-      COALESCE((SELECT role FROM member_roles WHERE member_id = m.id AND end_date IS NULL ORDER BY start_date DESC LIMIT 1), 'Membro') as role,
-      COALESCE(MAX(CASE WHEN p.date = ? THEN p.power END), 0) as start_power,
-      COALESCE(MAX(CASE WHEN p.date = ? THEN p.power END), 0) as end_power
-    FROM members m
-    LEFT JOIN power_history p ON m.id = p.member_id AND p.date IN (?, ?)
+      COALESCE((SELECT role FROM MemberRole WHERE member_id = m.id AND end_date IS NULL ORDER BY start_date DESC LIMIT 1), 'Membro') as role,
+      COALESCE(MAX(CASE WHEN p.date = ${start} THEN p.power END), 0) as start_power,
+      COALESCE(MAX(CASE WHEN p.date = ${end} THEN p.power END), 0) as end_power
+    FROM Member m
+    LEFT JOIN PowerHistory p ON m.id = p.member_id AND p.date IN (${start}, ${end})
     GROUP BY m.id
     HAVING start_power > 0 OR end_power > 0
-  `).all(start, end, start, end);
+  `;
   
-  res.json(data);
+  // Convert BigInt to string for JSON serialization
+  const serializedData = (data as any[]).map(row => ({
+    ...row,
+    start_power: row.start_power.toString(),
+    end_power: row.end_power.toString()
+  }));
+
+  res.json(serializedData);
 });
 
-app.get('/api/power', authenticateToken, (req, res) => {
-  const history = db.prepare(`
+app.get('/api/power', authenticateToken, async (req, res) => {
+  const history = await prisma.$queryRaw`
     SELECT p.*, m.nick, m.status,
-           COALESCE((SELECT role FROM member_roles WHERE member_id = m.id AND end_date IS NULL ORDER BY start_date DESC LIMIT 1), 'Membro') as role
-    FROM power_history p 
-    JOIN members m ON p.member_id = m.id 
+           COALESCE((SELECT role FROM MemberRole WHERE member_id = m.id AND end_date IS NULL ORDER BY start_date DESC LIMIT 1), 'Membro') as role
+    FROM PowerHistory p 
+    JOIN Member m ON p.member_id = m.id 
     ORDER BY p.date DESC
-  `).all();
-  res.json(history);
+  `;
+  
+  const serializedHistory = (history as any[]).map(row => ({
+    ...row,
+    power: row.power.toString()
+  }));
+
+  res.json(serializedHistory);
 });
 
-app.delete('/api/power/:id', authenticateToken, (req: any, res) => {
+app.delete('/api/power/:id', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   try {
-    db.prepare('DELETE FROM power_history WHERE id = ?').run(req.params.id);
+    await prisma.powerHistory.delete({ where: { id: parseInt(req.params.id) } });
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.delete('/api/power/date/:date', authenticateToken, (req: any, res) => {
+app.delete('/api/power/date/:date', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   try {
-    db.prepare('DELETE FROM power_history WHERE date = ?').run(req.params.date);
+    await prisma.powerHistory.deleteMany({ where: { date: req.params.date } });
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -523,7 +792,7 @@ app.delete('/api/power/date/:date', authenticateToken, (req: any, res) => {
 });
 
 // Tournaments
-app.get('/api/tournaments/:type/compare', authenticateToken, (req, res) => {
+app.get('/api/tournaments/:type/compare', authenticateToken, checkPermission('tournaments', 'view'), async (req, res) => {
   const { type } = req.params;
   const { start, end } = req.query;
   if (!start || !end) return res.status(400).json({ error: 'Datas start e end são obrigatórias' });
@@ -533,54 +802,97 @@ app.get('/api/tournaments/:type/compare', authenticateToken, (req, res) => {
 
   const valueColumn = type === 'guerra_total' ? 'power' : 'score';
 
-  const data = db.prepare(`
+  // Using raw query for dynamic table name
+  const data = await prisma.$queryRawUnsafe(`
     SELECT 
       m.nick,
       m.status,
-      COALESCE(MAX(CASE WHEN t.date = ? THEN t.${valueColumn} END), 0) as start_value,
-      COALESCE(MAX(CASE WHEN t.date = ? THEN t.${valueColumn} END), 0) as end_value
+      COALESCE(MAX(CASE WHEN t.date = $1 THEN t.${valueColumn} END), 0) as start_value,
+      COALESCE(MAX(CASE WHEN t.date = $2 THEN t.${valueColumn} END), 0) as end_value
     FROM members m
-    LEFT JOIN ${type} t ON m.id = t.member_id AND t.date IN (?, ?)
+    LEFT JOIN ${type} t ON m.id = t.member_id AND t.date IN ($1, $2)
     GROUP BY m.id
     HAVING start_value > 0 OR end_value > 0
-  `).all(start, end, start, end);
+  `, start, end);
   
-  res.json(data);
+  const serializedData = (data as any[]).map(row => ({
+    ...row,
+    start_value: typeof row.start_value === 'bigint' ? row.start_value.toString() : row.start_value,
+    end_value: typeof row.end_value === 'bigint' ? row.end_value.toString() : row.end_value
+  }));
+
+  res.json(serializedData);
 });
 
-app.get('/api/tournaments/guerra_total', authenticateToken, (req, res) => {
-  const data = db.prepare('SELECT t.*, m.nick, m.status FROM guerra_total t JOIN members m ON t.member_id = m.id ORDER BY t.date DESC').all();
-  res.json(data);
+app.get('/api/tournaments/guerra_total', authenticateToken, checkPermission('tournaments', 'view'), async (req, res) => {
+  const data = await prisma.guerraTotal.findMany({
+    include: { member: { select: { nick: true, status: true } } },
+    orderBy: { date: 'desc' }
+  });
+  const serializedData = data.map(row => ({
+    ...row,
+    power: row.power.toString(),
+    nick: row.member.nick,
+    status: row.member.status,
+    member: undefined
+  }));
+  res.json(serializedData);
 });
 
-app.get('/api/tournaments/torneio_celeste', authenticateToken, (req, res) => {
-  const data = db.prepare('SELECT t.*, m.nick, m.status FROM torneio_celeste t JOIN members m ON t.member_id = m.id ORDER BY t.date DESC').all();
-  res.json(data);
+app.get('/api/tournaments/torneio_celeste', authenticateToken, checkPermission('tournaments', 'view'), async (req, res) => {
+  const data = await prisma.torneioCeleste.findMany({
+    include: { member: { select: { nick: true, status: true } } },
+    orderBy: { date: 'desc' }
+  });
+  const serializedData = data.map(row => ({
+    ...row,
+    nick: row.member.nick,
+    status: row.member.status,
+    member: undefined
+  }));
+  res.json(serializedData);
 });
 
-app.get('/api/tournaments/pico_gloria', authenticateToken, (req, res) => {
-  const data = db.prepare('SELECT t.*, m.nick, m.status FROM pico_gloria t JOIN members m ON t.member_id = m.id ORDER BY t.date DESC').all();
-  res.json(data);
+app.get('/api/tournaments/pico_gloria', authenticateToken, checkPermission('tournaments', 'view'), async (req, res) => {
+  const data = await prisma.picoGloria.findMany({
+    include: { member: { select: { nick: true, status: true } } },
+    orderBy: { date: 'desc' }
+  });
+  const serializedData = data.map(row => ({
+    ...row,
+    nick: row.member.nick,
+    status: row.member.status,
+    member: undefined
+  }));
+  res.json(serializedData);
 });
 
-app.delete('/api/tournaments/:type/:id', authenticateToken, (req: any, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+app.delete('/api/tournaments/:type/:id', authenticateToken, checkPermission('tournaments', 'full'), async (req: any, res) => {
   const type = req.params.type;
-  if (!['guerra_total', 'torneio_celeste', 'pico_gloria'].includes(type)) return res.status(400).json({ error: 'Tipo inválido' });
+  const id = parseInt(req.params.id);
+  
   try {
-    db.prepare(`DELETE FROM ${type} WHERE id = ?`).run(req.params.id);
+    if (type === 'guerra_total') await prisma.guerraTotal.delete({ where: { id } });
+    else if (type === 'torneio_celeste') await prisma.torneioCeleste.delete({ where: { id } });
+    else if (type === 'pico_gloria') await prisma.picoGloria.delete({ where: { id } });
+    else return res.status(400).json({ error: 'Tipo inválido' });
+    
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.delete('/api/tournaments/:type/date/:date', authenticateToken, (req: any, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+app.delete('/api/tournaments/:type/date/:date', authenticateToken, checkPermission('tournaments', 'full'), async (req: any, res) => {
   const type = req.params.type;
-  if (!['guerra_total', 'torneio_celeste', 'pico_gloria'].includes(type)) return res.status(400).json({ error: 'Tipo inválido' });
+  const date = req.params.date;
+  
   try {
-    db.prepare(`DELETE FROM ${type} WHERE date = ?`).run(req.params.date);
+    if (type === 'guerra_total') await prisma.guerraTotal.deleteMany({ where: { date } });
+    else if (type === 'torneio_celeste') await prisma.torneioCeleste.deleteMany({ where: { date } });
+    else if (type === 'pico_gloria') await prisma.picoGloria.deleteMany({ where: { date } });
+    else return res.status(400).json({ error: 'Tipo inválido' });
+    
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -588,7 +900,7 @@ app.delete('/api/tournaments/:type/date/:date', authenticateToken, (req: any, re
 });
 
 // Fenda
-app.get('/api/fenda/compare', authenticateToken, (req, res) => {
+app.get('/api/fenda/compare', authenticateToken, async (req, res) => {
   const { start, end, season } = req.query;
   if (!start || !end) return res.status(400).json({ error: 'Datas start e end são obrigatórias' });
 
@@ -596,17 +908,17 @@ app.get('/api/fenda/compare', authenticateToken, (req, res) => {
     SELECT 
       m.nick,
       m.status,
-      COALESCE(MAX(CASE WHEN f.date = ? THEN f.crystals END), 0) as start_value,
-      COALESCE(MAX(CASE WHEN f.date = ? THEN f.crystals END), 0) as end_value
+      COALESCE(MAX(CASE WHEN f.date = $1 THEN f.crystals END), 0) as start_value,
+      COALESCE(MAX(CASE WHEN f.date = $2 THEN f.crystals END), 0) as end_value
     FROM members m
-    LEFT JOIN fenda_history f ON m.id = f.member_id AND f.date IN (?, ?)
+    LEFT JOIN fenda_history f ON m.id = f.member_id AND f.date IN ($1, $2)
   `;
   
-  const params = [start, end, start, end];
+  const params: any[] = [start, end];
   
   if (season) {
-    query += ` AND f.season = ? `;
-    params.push(season);
+    query += ` AND f.season = $3 `;
+    params.push(parseInt(season as string));
   }
   
   query += `
@@ -614,83 +926,112 @@ app.get('/api/fenda/compare', authenticateToken, (req, res) => {
     HAVING start_value > 0 OR end_value > 0
   `;
 
-  const data = db.prepare(query).all(...params);
-  res.json(data);
+  const data = await prisma.$queryRawUnsafe(query, ...params);
+  
+  const serializedData = (data as any[]).map(row => ({
+    ...row,
+    start_value: typeof row.start_value === 'bigint' ? row.start_value.toString() : row.start_value,
+    end_value: typeof row.end_value === 'bigint' ? row.end_value.toString() : row.end_value
+  }));
+
+  res.json(serializedData);
 });
 
-app.get('/api/fenda', authenticateToken, (req, res) => {
-  const seasonRow = db.prepare("SELECT value FROM settings WHERE key = 'fenda_season'").get() as any;
+app.get('/api/fenda', authenticateToken, checkPermission('fenda', 'view'), async (req, res) => {
+  const seasonRow = await prisma.setting.findUnique({ where: { key: 'fenda_season' } });
   const currentSeason = parseInt(seasonRow?.value || '1', 10);
   const requestedSeason = req.query.season ? parseInt(req.query.season as string, 10) : currentSeason;
   
-  const data = db.prepare(`
-    SELECT f.id, m.nick, m.status, f.crystals, f.date 
-    FROM fenda_history f
-    JOIN members m ON f.member_id = m.id
-    WHERE f.season = ?
-    ORDER BY f.crystals DESC
-  `).all(requestedSeason);
+  const data = await prisma.fendaHistory.findMany({
+    where: { season: requestedSeason },
+    include: { member: { select: { nick: true, status: true } } },
+    orderBy: { crystals: 'desc' }
+  });
   
-  res.json({ season: requestedSeason, currentSeason, data });
+  const serializedData = data.map(row => ({
+    ...row,
+    crystals: row.crystals.toString(),
+    nick: row.member.nick,
+    status: row.member.status,
+    member: undefined
+  }));
+  
+  res.json({ season: requestedSeason, currentSeason, data: serializedData });
 });
 
-app.get('/api/fenda/seasons', authenticateToken, (req, res) => {
-  const seasons = db.prepare('SELECT * FROM rift_seasons ORDER BY season_number DESC').all();
+app.get('/api/fenda/seasons', authenticateToken, checkPermission('fenda', 'view'), async (req, res) => {
+  const seasons = await prisma.riftSeason.findMany({
+    orderBy: { season_number: 'desc' }
+  });
   res.json(seasons);
 });
 
-app.post('/api/fenda/close', authenticateToken, (req, res) => {
+app.post('/api/fenda/close', authenticateToken, checkPermission('fenda', 'full'), async (req, res) => {
   const { date } = req.body;
   if (!date) return res.status(400).json({ error: 'Data de fechamento é obrigatória' });
   
-  db.transaction(() => {
-    const seasonRow = db.prepare("SELECT value FROM settings WHERE key = 'fenda_season'").get() as any;
-    const currentSeason = parseInt(seasonRow?.value || '1', 10);
-    
-    db.prepare('INSERT INTO rift_seasons (season_number, closed_at) VALUES (?, ?)').run(currentSeason, date);
-    
-    const newSeason = currentSeason + 1;
-    db.prepare("UPDATE settings SET value = ? WHERE key = 'fenda_season'").run(newSeason.toString());
-  })();
+  const seasonRow = await prisma.setting.findUnique({ where: { key: 'fenda_season' } });
+  const currentSeason = parseInt(seasonRow?.value || '1', 10);
+  
+  await prisma.$transaction([
+    prisma.riftSeason.create({
+      data: { season_number: currentSeason, closed_at: date }
+    }),
+    prisma.setting.upsert({
+      where: { key: 'fenda_season' },
+      update: { value: (currentSeason + 1).toString() },
+      create: { key: 'fenda_season', value: (currentSeason + 1).toString() }
+    })
+  ]);
+  
   res.json({ success: true });
 });
 
-app.post('/api/fenda/reopen', authenticateToken, (req: any, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
-  
+app.post('/api/fenda/reopen', authenticateToken, checkPermission('fenda', 'full'), async (req: any, res) => {
   const { season_number } = req.body;
   
-  db.transaction(() => {
-    if (season_number) {
-       db.prepare('DELETE FROM rift_seasons WHERE season_number = ?').run(season_number);
-       db.prepare("UPDATE settings SET value = ? WHERE key = 'fenda_season'").run(season_number.toString());
-    } else {
-      const seasonRow = db.prepare("SELECT value FROM settings WHERE key = 'fenda_season'").get() as any;
-      const currentSeason = parseInt(seasonRow?.value || '1', 10);
-      if (currentSeason > 1) {
-        const prevSeason = currentSeason - 1;
-        db.prepare('DELETE FROM rift_seasons WHERE season_number = ?').run(prevSeason);
-        db.prepare("UPDATE settings SET value = ? WHERE key = 'fenda_season'").run(prevSeason.toString());
-      }
+  if (season_number) {
+    const sn = parseInt(season_number);
+    await prisma.$transaction([
+      prisma.riftSeason.delete({ where: { season_number: sn } }),
+      prisma.setting.upsert({
+        where: { key: 'fenda_season' },
+        update: { value: sn.toString() },
+        create: { key: 'fenda_season', value: sn.toString() }
+      })
+    ]);
+  } else {
+    const seasonRow = await prisma.setting.findUnique({ where: { key: 'fenda_season' } });
+    const currentSeason = parseInt(seasonRow?.value || '1', 10);
+    if (currentSeason > 1) {
+      const prevSeason = currentSeason - 1;
+      await prisma.$transaction([
+        prisma.riftSeason.delete({ where: { season_number: prevSeason } }),
+        prisma.setting.upsert({
+          where: { key: 'fenda_season' },
+          update: { value: prevSeason.toString() },
+          create: { key: 'fenda_season', value: prevSeason.toString() }
+        })
+      ]);
     }
-  })();
+  }
+  
   res.json({ success: true });
 });
 
-app.delete('/api/fenda/:id', authenticateToken, (req: any, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+app.delete('/api/fenda/:id', authenticateToken, checkPermission('fenda', 'full'), async (req: any, res) => {
   try {
-    db.prepare('DELETE FROM fenda_history WHERE id = ?').run(req.params.id);
+    await prisma.fendaHistory.delete({ where: { id: parseInt(req.params.id) } });
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.delete('/api/fenda/date/:date', authenticateToken, (req: any, res) => {
+app.delete('/api/fenda/date/:date', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   try {
-    db.prepare('DELETE FROM fenda_history WHERE date = ?').run(req.params.date);
+    await prisma.fendaHistory.deleteMany({ where: { date: req.params.date } });
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -712,7 +1053,7 @@ function parseDateStr(d: string | undefined | null, fallback: string) {
   return d;
 }
 
-app.post('/api/upload/:type/preview', authenticateToken, upload.single('file'), (req: any, res) => {
+app.post('/api/upload/:type/preview', authenticateToken, checkPermission(req => req.params.type, 'full'), upload.single('file'), async (req: any, res) => {
   if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
   
   const shouldStore = req.body.store === 'true';
@@ -722,23 +1063,27 @@ app.post('/api/upload/:type/preview', authenticateToken, upload.single('file'), 
     const newFilename = `${Date.now()}-${req.file.originalname}`;
     const newPath = path.join('uploads/csv', newFilename);
     fs.copyFileSync(req.file.path, newPath);
-    db.prepare('INSERT INTO stored_csvs (filename, original_name, type) VALUES (?, ?, ?)').run(newFilename, req.file.originalname, type);
+    await prisma.storedCsv.create({
+      data: { filename: newFilename, original_name: req.file.originalname, type }
+    });
   }
 
   const results: any[] = [];
   fs.createReadStream(req.file.path)
     .pipe(parse({ columns: true, trim: true, bom: true, delimiter: [',', ';'] }))
     .on('data', (data) => results.push(data))
-    .on('end', () => {
+    .on('end', async () => {
       fs.unlinkSync(req.file!.path);
       
       const unknownNicks = new Set<string>();
-      const getMember = db.prepare('SELECT id FROM members WHERE nick = ?');
       
       for (const row of results) {
         const nick = row.Nick || row.nick || row.NICK;
-        if (nick && !getMember.get(nick)) {
-          unknownNicks.add(nick);
+        if (nick) {
+          const member = await prisma.member.findUnique({ where: { nick } });
+          if (!member) {
+            unknownNicks.add(nick);
+          }
         }
       }
       
@@ -750,13 +1095,15 @@ app.post('/api/upload/:type/preview', authenticateToken, upload.single('file'), 
 });
 
 // Stored CSVs
-app.get('/api/stored-csvs', authenticateToken, (req, res) => {
-  const csvs = db.prepare('SELECT * FROM stored_csvs ORDER BY created_at DESC').all();
+app.get('/api/stored-csvs', authenticateToken, async (req, res) => {
+  const csvs = await prisma.storedCsv.findMany({
+    orderBy: { created_at: 'desc' }
+  });
   res.json(csvs);
 });
 
-app.get('/api/stored-csvs/:id/download', authenticateToken, (req, res) => {
-  const csv = db.prepare('SELECT * FROM stored_csvs WHERE id = ?').get(req.params.id) as any;
+app.get('/api/stored-csvs/:id/download', authenticateToken, async (req, res) => {
+  const csv = await prisma.storedCsv.findUnique({ where: { id: parseInt(req.params.id) } });
   if (!csv) return res.status(404).json({ error: 'Arquivo não encontrado' });
   
   const filePath = path.join('uploads/csv', csv.filename);
@@ -765,10 +1112,10 @@ app.get('/api/stored-csvs/:id/download', authenticateToken, (req, res) => {
   res.download(filePath, csv.original_name);
 });
 
-app.delete('/api/stored-csvs/:id', authenticateToken, (req: any, res) => {
+app.delete('/api/stored-csvs/:id', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   
-  const csv = db.prepare('SELECT * FROM stored_csvs WHERE id = ?').get(req.params.id) as any;
+  const csv = await prisma.storedCsv.findUnique({ where: { id: parseInt(req.params.id) } });
   if (!csv) return res.status(404).json({ error: 'Arquivo não encontrado' });
   
   const filePath = path.join('uploads/csv', csv.filename);
@@ -776,11 +1123,11 @@ app.delete('/api/stored-csvs/:id', authenticateToken, (req: any, res) => {
     fs.unlinkSync(filePath);
   }
   
-  db.prepare('DELETE FROM stored_csvs WHERE id = ?').run(req.params.id);
+  await prisma.storedCsv.delete({ where: { id: parseInt(req.params.id) } });
   res.json({ success: true });
 });
 
-app.post('/api/stored-csvs/upload', authenticateToken, upload.single('file'), (req: any, res) => {
+app.post('/api/stored-csvs/upload', authenticateToken, upload.single('file'), async (req: any, res) => {
   if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
   if (req.user.role !== 'admin') {
     fs.unlinkSync(req.file.path);
@@ -798,12 +1145,14 @@ app.post('/api/stored-csvs/upload', authenticateToken, upload.single('file'), (r
   fs.copyFileSync(req.file.path, newPath);
   fs.unlinkSync(req.file.path);
 
-  db.prepare('INSERT INTO stored_csvs (filename, original_name, type) VALUES (?, ?, ?)').run(newFilename, req.file.originalname, type);
+  await prisma.storedCsv.create({
+    data: { filename: newFilename, original_name: req.file.originalname, type }
+  });
   res.json({ success: true });
 });
 
-app.get('/api/stored-csvs/:id/preview', authenticateToken, (req, res) => {
-  const csv = db.prepare('SELECT * FROM stored_csvs WHERE id = ?').get(req.params.id) as any;
+app.get('/api/stored-csvs/:id/preview', authenticateToken, async (req, res) => {
+  const csv = await prisma.storedCsv.findUnique({ where: { id: parseInt(req.params.id) } });
   if (!csv) return res.status(404).json({ error: 'Arquivo não encontrado' });
   
   const filePath = path.join('uploads/csv', csv.filename);
@@ -813,14 +1162,16 @@ app.get('/api/stored-csvs/:id/preview', authenticateToken, (req, res) => {
   fs.createReadStream(filePath)
     .pipe(parse({ columns: true, trim: true, bom: true, delimiter: [',', ';'] }))
     .on('data', (data) => results.push(data))
-    .on('end', () => {
+    .on('end', async () => {
       const unknownNicks = new Set<string>();
-      const getMember = db.prepare('SELECT id FROM members WHERE nick = ?');
       
       for (const row of results) {
         const nick = row.Nick || row.nick || row.NICK;
-        if (nick && !getMember.get(nick)) {
-          unknownNicks.add(nick);
+        if (nick) {
+          const member = await prisma.member.findUnique({ where: { nick } });
+          if (!member) {
+            unknownNicks.add(nick);
+          }
         }
       }
       
@@ -831,7 +1182,7 @@ app.get('/api/stored-csvs/:id/preview', authenticateToken, (req, res) => {
     });
 });
 
-app.post('/api/upload/:type', authenticateToken, (req: any, res) => {
+app.post('/api/upload/:type', authenticateToken, checkPermission(req => req.params.type, 'full'), async (req: any, res) => {
   const type = req.params.type;
   const { results, mappings } = req.body;
   
@@ -840,14 +1191,14 @@ app.post('/api/upload/:type', authenticateToken, (req: any, res) => {
   }
   
   try {
-    const insertMember = db.prepare('INSERT OR IGNORE INTO members (nick, entry_date, import_id) VALUES (?, ?, ?)');
-    const getMember = db.prepare('SELECT id FROM members WHERE nick = ?');
-    
     let importedCount = 0;
-    db.transaction(() => {
+    
+    await prisma.$transaction(async (tx) => {
       const importDate = new Date().toISOString().split('T')[0];
-      const importResult = db.prepare('INSERT INTO imports (user_id, type, date) VALUES (?, ?, ?)').run(req.user.id, type, importDate);
-      const importId = importResult.lastInsertRowid;
+      const importResult = await tx.import.create({
+        data: { user_id: req.user.id, type, date: importDate }
+      });
+      const importId = importResult.id;
 
       for (const row of results) {
         const nick = row.Nick || row.nick || row.NICK;
@@ -863,17 +1214,23 @@ app.post('/api/upload/:type', authenticateToken, (req: any, res) => {
           } else if (mapping.action === 'new') {
             const rawDate = row.Date || row.date || row.Data || row.data || row.DATA;
             const entryDate = parseDateStr(rawDate, importDate);
-            insertMember.run(nick, entryDate, importId);
-            const member = getMember.get(nick) as any;
-            memberId = member?.id;
+            const newMember = await tx.member.create({
+              data: { nick, entry_date: entryDate, import_id: importId }
+            });
+            memberId = newMember.id;
           }
         } else {
           // Default behavior: ensure member exists
           const rawDate = row.Date || row.date || row.Data || row.data || row.DATA;
           const entryDate = parseDateStr(rawDate, importDate);
-          insertMember.run(nick, entryDate, importId);
-          const member = getMember.get(nick) as any;
-          memberId = member?.id;
+          
+          let member = await tx.member.findUnique({ where: { nick } });
+          if (!member) {
+            member = await tx.member.create({
+              data: { nick, entry_date: entryDate, import_id: importId }
+            });
+          }
+          memberId = member.id;
         }
 
         if (!memberId) continue;
@@ -884,35 +1241,65 @@ app.post('/api/upload/:type', authenticateToken, (req: any, res) => {
         if (type === 'members') {
           // Just members
         } else if (type === 'power') {
-          db.prepare('INSERT INTO power_history (member_id, power, date, import_id) VALUES (?, ?, ?, ?)').run(
-            memberId, row.Power || row.power || row.Poder || row.poder || row.PODER, entryDate, importId
-          );
+          await tx.powerHistory.create({
+            data: {
+              member_id: memberId,
+              power: parseInt(row.Power || row.power || row.Poder || row.poder || row.PODER || '0', 10),
+              date: entryDate,
+              import_id: importId
+            }
+          });
         } else if (type === 'guerra_total') {
-          db.prepare('INSERT INTO guerra_total (member_id, power, date, import_id) VALUES (?, ?, ?, ?)').run(
-            memberId, row.Power || row.power || row.Poder || row.poder || row.PODER, entryDate, importId
-          );
+          await tx.guerraTotal.create({
+            data: {
+              member_id: memberId,
+              power: parseInt(row.Power || row.power || row.Poder || row.poder || row.PODER || '0', 10),
+              date: entryDate,
+              import_id: importId
+            }
+          });
         } else if (type === 'torneio_celeste') {
-          db.prepare('INSERT INTO torneio_celeste (member_id, guild, score, field, date, import_id) VALUES (?, ?, ?, ?, ?, ?)').run(
-            memberId, row.Guild || row.guild || row.GUILD, row.Score || row.score || row.Pontuacao || row.pontuacao || row.PONTUACAO, row.Field || row.field || row.Campo || row.campo || row.CAMPO, entryDate, importId
-          );
+          await tx.torneioCeleste.create({
+            data: {
+              member_id: memberId,
+              guild: row.Guild || row.guild || row.GUILD || '',
+              score: parseInt(row.Score || row.score || row.Pontuacao || row.pontuacao || row.PONTUACAO || '0', 10),
+              field: (row.Field || row.field || row.Campo || row.campo || row.CAMPO || '0').toString(),
+              date: entryDate,
+              import_id: importId
+            }
+          });
         } else if (type === 'pico_gloria') {
           const team = row.Team || row.team || row.Time || row.time || row.TIME || 'Livre';
-          db.prepare('INSERT INTO pico_gloria (member_id, round, score, team, date, import_id) VALUES (?, ?, ?, ?, ?, ?)').run(
-            memberId, row.Round || row.round || row.Rodada || row.rodada || row.RODADA, row.Score || row.score || row.Pontuacao || row.pontuacao || row.PONTUACAO, team, entryDate, importId
-          );
+          await tx.picoGloria.create({
+            data: {
+              member_id: memberId,
+              round: parseInt(row.Round || row.round || row.Rodada || row.rodada || row.RODADA || '0', 10),
+              score: parseInt(row.Score || row.score || row.Pontuacao || row.pontuacao || row.PONTUACAO || '0', 10),
+              team,
+              date: entryDate,
+              import_id: importId
+            }
+          });
         } else if (type === 'fenda') {
-          const seasonRow = db.prepare("SELECT value FROM settings WHERE key = 'fenda_season'").get() as any;
+          const seasonRow = await tx.setting.findUnique({ where: { key: 'fenda_season' } });
           const season = parseInt(seasonRow?.value || '1', 10);
           const crystals = row.Crystals || row.crystals || row.Cristais || row.cristais || row.CRISTAIS;
           if (crystals) {
-            db.prepare('INSERT INTO fenda_history (member_id, crystals, date, season, import_id) VALUES (?, ?, ?, ?, ?)').run(
-              memberId, crystals, entryDate, season, importId
-            );
+            await tx.fendaHistory.create({
+              data: {
+                member_id: memberId,
+                crystals: parseInt(crystals, 10),
+                date: entryDate,
+                season,
+                import_id: importId
+              }
+            });
           }
         }
         importedCount++;
       }
-    })();
+    });
     
     res.json({ success: true, count: importedCount });
   } catch (e: any) {
@@ -921,30 +1308,46 @@ app.post('/api/upload/:type', authenticateToken, (req: any, res) => {
 });
 
 // Imports History
-app.get('/api/imports', authenticateToken, (req, res) => {
-  const imports = db.prepare(`
-    SELECT i.*, u.username 
-    FROM imports i 
-    JOIN users u ON i.user_id = u.id 
-    ORDER BY i.created_at DESC
-  `).all();
-  res.json(imports);
+app.get('/api/imports', authenticateToken, async (req, res) => {
+  const imports = await prisma.import.findMany({
+    orderBy: { created_at: 'desc' }
+  });
+  
+  // We need to fetch usernames separately or use a raw query if we want to join with users
+  // Since we only have user_id in Import, let's fetch users and map them
+  const userIds = [...new Set(imports.map(i => i.user_id))];
+  const users = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, username: true }
+  });
+  
+  const userMap = new Map(users.map(u => [u.id, u.username]));
+  
+  const serializedImports = imports.map(i => ({
+    ...i,
+    username: userMap.get(i.user_id) || 'Desconhecido'
+  }));
+  
+  res.json(serializedImports);
 });
 
-app.delete('/api/imports/:id', authenticateToken, (req: any, res) => {
+app.delete('/api/imports/:id', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
-  const id = req.params.id;
+  const id = parseInt(req.params.id);
   
   try {
-    db.transaction(() => {
-      db.prepare('DELETE FROM power_history WHERE import_id = ?').run(id);
-      db.prepare('DELETE FROM guerra_total WHERE import_id = ?').run(id);
-      db.prepare('DELETE FROM torneio_celeste WHERE import_id = ?').run(id);
-      db.prepare('DELETE FROM pico_gloria WHERE import_id = ?').run(id);
-      db.prepare('DELETE FROM fenda_history WHERE import_id = ?').run(id);
-      db.prepare('DELETE FROM members WHERE import_id = ?').run(id);
-      db.prepare('DELETE FROM imports WHERE id = ?').run(id);
-    })();
+    // Note: Prisma doesn't support deleting by a non-unique foreign key directly in a single transaction array
+    // if the relation isn't explicitly defined with onDelete: Cascade in the schema.
+    // We'll use deleteMany for each table.
+    await prisma.$transaction([
+      prisma.powerHistory.deleteMany({ where: { import_id: id } } as any),
+      prisma.guerraTotal.deleteMany({ where: { import_id: id } } as any),
+      prisma.torneioCeleste.deleteMany({ where: { import_id: id } } as any),
+      prisma.picoGloria.deleteMany({ where: { import_id: id } } as any),
+      prisma.fendaHistory.deleteMany({ where: { import_id: id } } as any),
+      prisma.member.deleteMany({ where: { import_id: id } } as any),
+      prisma.import.delete({ where: { id } })
+    ]);
     
     res.json({ success: true });
   } catch (e: any) {
@@ -953,24 +1356,35 @@ app.delete('/api/imports/:id', authenticateToken, (req: any, res) => {
 });
 
 // Absences (Faltas)
-app.get('/api/absences', authenticateToken, (req, res) => {
-  const allMembers = db.prepare("SELECT id, nick, status, entry_date FROM members").all() as any[];
+app.get('/api/absences', authenticateToken, checkPermission('absences', 'view'), async (req, res) => {
+  const allMembers = await prisma.member.findMany({
+    select: { id: true, nick: true, status: true, entry_date: true }
+  });
   
   // Get all unique dates from tournaments
-  const datesGT = db.prepare('SELECT DISTINCT date FROM guerra_total').all() as any[];
-  const datesTC = db.prepare('SELECT DISTINCT date FROM torneio_celeste').all() as any[];
-  const datesPG = db.prepare('SELECT DISTINCT date FROM pico_gloria').all() as any[];
+  const datesGT = await prisma.guerraTotal.findMany({ select: { date: true }, distinct: ['date'] });
+  const datesTC = await prisma.torneioCeleste.findMany({ select: { date: true }, distinct: ['date'] });
+  const datesPG = await prisma.picoGloria.findMany({ select: { date: true }, distinct: ['date'] });
   
   // Get all justifications
-  const allJustifications = db.prepare('SELECT * FROM absence_justifications').all() as any[];
+  const allJustifications = await prisma.absenceJustification.findMany();
   
+  // Get all participations to avoid N+1 queries
+  const participationsGT = await prisma.guerraTotal.findMany({ select: { member_id: true, date: true } });
+  const participationsTC = await prisma.torneioCeleste.findMany({ select: { member_id: true, date: true } });
+  const participationsPG = await prisma.picoGloria.findMany({ select: { member_id: true, date: true } });
+
+  const hasParticipated = (participations: any[], memberId: number, date: string) => {
+    return participations.some(p => p.member_id === memberId && p.date === date);
+  };
+
   const absences = allMembers.map(m => {
     const missedDates: { date: string, tournament_type: string, justification?: any }[] = [];
     
-    const checkMissed = (dates: any[], tournamentType: string, table: string) => {
+    const checkMissed = (dates: any[], tournamentType: string, participations: any[]) => {
       for (const d of dates) {
         if (d.date < m.entry_date) continue;
-        const participated = db.prepare(`SELECT 1 FROM ${table} WHERE member_id = ? AND date = ?`).get(m.id, d.date);
+        const participated = hasParticipated(participations, m.id, d.date);
         if (!participated) {
           const justification = allJustifications.find(j => j.member_id === m.id && j.date === d.date && j.tournament_type === tournamentType);
           missedDates.push({ date: d.date, tournament_type: tournamentType, justification });
@@ -978,9 +1392,9 @@ app.get('/api/absences', authenticateToken, (req, res) => {
       }
     };
 
-    checkMissed(datesGT, 'guerra_total', 'guerra_total');
-    checkMissed(datesTC, 'torneio_celeste', 'torneio_celeste');
-    checkMissed(datesPG, 'pico_gloria', 'pico_gloria');
+    checkMissed(datesGT, 'guerra_total', participationsGT);
+    checkMissed(datesTC, 'torneio_celeste', participationsTC);
+    checkMissed(datesPG, 'pico_gloria', participationsPG);
     
     const totals = {
       total: missedDates.length,
@@ -1002,48 +1416,59 @@ app.get('/api/absences', authenticateToken, (req, res) => {
   res.json(absences.filter(a => a.absences > 0).sort((a, b) => b.absences - a.absences));
 });
 
-app.post('/api/absences/justification', authenticateToken, (req: any, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+app.post('/api/absences/justification', authenticateToken, checkPermission('absences', 'edit'), async (req: any, res) => {
   const { member_id, date, tournament_type, type, note } = req.body;
   
   try {
-    db.prepare(`
-      INSERT INTO absence_justifications (member_id, date, tournament_type, type, note)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(member_id, date, tournament_type) DO UPDATE SET
-        type = excluded.type,
-        note = excluded.note
-    `).run(member_id, date, tournament_type, type, note);
+    // Prisma doesn't have a direct equivalent to ON CONFLICT DO UPDATE for compound unique keys without a defined unique constraint
+    // We'll use findFirst and then update or create
+    const existing = await prisma.absenceJustification.findFirst({
+      where: { member_id, date, tournament_type }
+    });
+
+    if (existing) {
+      await prisma.absenceJustification.update({
+        where: { id: existing.id },
+        data: { type, note }
+      });
+    } else {
+      await prisma.absenceJustification.create({
+        data: { member_id, date, tournament_type, type, note }
+      });
+    }
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.delete('/api/absences/justification', authenticateToken, (req: any, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+app.delete('/api/absences/justification', authenticateToken, checkPermission('absences', 'edit'), async (req: any, res) => {
   const { member_id, date, tournament_type } = req.body;
   
   try {
-    db.prepare('DELETE FROM absence_justifications WHERE member_id = ? AND date = ? AND tournament_type = ?').run(member_id, date, tournament_type);
+    await prisma.absenceJustification.deleteMany({
+      where: { member_id, date, tournament_type }
+    });
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.put('/api/members/:id/nick', authenticateToken, (req: any, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+app.put('/api/members/:id/nick', authenticateToken, checkPermission('members', 'edit'), async (req: any, res) => {
   const { nick } = req.body;
-  const { id } = req.params;
+  const id = parseInt(req.params.id);
   
   if (!nick) return res.status(400).json({ error: 'Nick é obrigatório' });
   
   try {
-    db.prepare('UPDATE members SET nick = ? WHERE id = ?').run(nick, id);
+    await prisma.member.update({
+      where: { id },
+      data: { nick }
+    });
     res.json({ success: true });
   } catch (e: any) {
-    if (e.message.includes('UNIQUE constraint failed')) {
+    if (e.code === 'P2002') { // Prisma unique constraint violation code
       return res.status(400).json({ error: 'Este nick já está em uso por outro membro' });
     }
     res.status(500).json({ error: e.message });

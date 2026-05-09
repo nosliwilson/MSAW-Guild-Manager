@@ -140,6 +140,22 @@ export default function SQLEditor({ fetchApi }: { fetchApi: any }) {
     }
   };
 
+  const handleExportJSON = async () => {
+    try {
+      const res = await fetchApi('/api/admin/db/export');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `database_export_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (e: any) {
+      alert('Erro ao exportar banco de dados: ' + e.message);
+    }
+  };
+
   const handleCreateBackup = async () => {
     if (!confirm('Deseja gerar um novo backup do banco de dados atual?')) return;
     try {
@@ -178,7 +194,10 @@ export default function SQLEditor({ fetchApi }: { fetchApi: any }) {
     formData.append('file', file);
 
     try {
-      const res = await fetchApi('/api/admin/db/upload-restore', {
+      const isJson = file.name.endsWith('.json');
+      const endpoint = isJson ? '/api/admin/db/import' : '/api/admin/db/upload-restore';
+      
+      const res = await fetchApi(endpoint, {
         method: 'POST',
         body: formData
       });
@@ -434,28 +453,37 @@ export default function SQLEditor({ fetchApi }: { fetchApi: any }) {
                 Exportar Banco de Dados
               </h2>
               <p className="text-zinc-400 text-sm mb-6">
-                Faça o download do arquivo SQLite completo (`guild.db`) para sua máquina local. Isso é útil para backups externos ou para abrir o banco em ferramentas como DBeaver ou DB Browser for SQLite.
+                Faça o download do arquivo SQLite completo (`guild.db`) ou exporte todos os dados em formato JSON para migração entre diferentes tipos de banco de dados.
               </p>
-              <button
-                onClick={handleDownloadDB}
-                className="w-full flex justify-center items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-3 rounded-lg transition-colors font-medium"
-              >
-                <Download className="w-4 h-4" />
-                Download guild.db
-              </button>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={handleDownloadDB}
+                  className="w-full flex justify-center items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-3 rounded-lg transition-colors font-medium"
+                >
+                  <Download className="w-4 h-4" />
+                  Download guild.db (SQLite)
+                </button>
+                <button
+                  onClick={handleExportJSON}
+                  className="w-full flex justify-center items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-3 rounded-lg transition-colors font-medium"
+                >
+                  <FileText className="w-4 h-4" />
+                  Exportar Dados (JSON)
+                </button>
+              </div>
             </div>
 
             <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-6">
               <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
                 <Upload className="w-5 h-5 text-amber-400" />
-                Restaurar de Arquivo Local
+                Restaurar / Importar
               </h2>
               <p className="text-zinc-400 text-sm mb-6">
-                Faça o upload de um arquivo `.db` para substituir o banco de dados atual. <strong className="text-red-400">Atenção: Todos os dados atuais serão sobrescritos.</strong>
+                Faça o upload de um arquivo `.db` para substituir o banco atual, ou um arquivo `.json` para importar dados. <strong className="text-red-400">Atenção: Todos os dados atuais serão sobrescritos.</strong>
               </p>
               <input 
                 type="file" 
-                accept=".db,.sqlite,.sqlite3" 
+                accept=".db,.sqlite,.sqlite3,.json" 
                 className="hidden" 
                 ref={fileInputRef}
                 onChange={handleUploadRestore}
@@ -466,7 +494,7 @@ export default function SQLEditor({ fetchApi }: { fetchApi: any }) {
                 className="w-full flex justify-center items-center gap-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-500 border border-amber-500/50 px-4 py-3 rounded-lg transition-colors font-medium disabled:opacity-50"
               >
                 <Upload className="w-4 h-4" />
-                {uploading ? 'Restaurando...' : 'Fazer Upload e Restaurar'}
+                {uploading ? 'Processando...' : 'Fazer Upload'}
               </button>
             </div>
           </div>

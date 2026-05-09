@@ -1,0 +1,178 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ============================================================================
+// DATABASE MIGRATION INSTRUCTIONS
+// ============================================================================
+// To migrate to a different database engine (e.g., PostgreSQL or MySQL):
+//
+// 1. EXPORT DATA: While still using SQLite, go to the Admin Panel -> 
+//    Database Management -> Backups, and click "Exportar Dados (JSON)".
+//    Save this file to your computer.
+// 2. CHANGE PROVIDER: Comment out the active SQLite datasource block below,
+//    and uncomment the block for your desired database (PostgreSQL or MySQL).
+// 3. SET ENV VAR: Create or update your `.env` file with the connection string:
+//    DATABASE_URL="postgresql://user:password@host:5432/dbname"
+// 4. APPLY SCHEMA: Run the following command in your terminal to create the 
+//    tables in your new database:
+//    $ npx prisma db push
+// 5. IMPORT DATA: Start the application, create a temporary admin user directly
+//    in the new database, log in, go to Admin Panel -> Database Management -> 
+//    Backups, and upload the JSON file you exported in step 1.
+// ============================================================================
+
+// --- ACTIVE: SQLite ---
+datasource db {
+  provider = "sqlite"
+  url      = "file:../guild.db"
+}
+
+// --- OPTION: PostgreSQL ---
+// datasource db {
+//   provider = "postgresql"
+//   url      = env("DATABASE_URL")
+// }
+
+// --- OPTION: MySQL ---
+// datasource db {
+//   provider = "mysql"
+//   url      = env("DATABASE_URL")
+// }
+
+model SystemRole {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  permissions String   @default("{}")
+}
+
+model User {
+  id            Int      @id @default(autoincrement())
+  username      String   @unique
+  password_hash String
+  role          String   @default("user")
+  is_blocked    Int      @default(0)
+}
+
+model Member {
+  id         Int      @id @default(autoincrement())
+  nick       String   @unique
+  status     String   @default("ativo")
+  entry_date String
+  exit_date  String?
+  import_id  Int?
+
+  memberRoles            MemberRole[]
+  powerHistory           PowerHistory[]
+  guerraTotal            GuerraTotal[]
+  torneioCeleste         TorneioCeleste[]
+  picoGloria             PicoGloria[]
+  fendaHistory           FendaHistory[]
+  absenceJustifications  AbsenceJustification[]
+}
+
+model MemberRole {
+  id         Int      @id @default(autoincrement())
+  member_id  Int
+  role       String
+  start_date String
+  end_date   String?
+
+  member     Member   @relation(fields: [member_id], references: [id])
+}
+
+model PowerHistory {
+  id         Int      @id @default(autoincrement())
+  member_id  Int
+  power      BigInt
+  date       String
+  import_id  Int?
+
+  member     Member   @relation(fields: [member_id], references: [id])
+}
+
+model GuerraTotal {
+  id         Int      @id @default(autoincrement())
+  member_id  Int
+  power      BigInt
+  date       String
+  import_id  Int?
+
+  member     Member   @relation(fields: [member_id], references: [id])
+}
+
+model TorneioCeleste {
+  id         Int      @id @default(autoincrement())
+  member_id  Int
+  guild      String
+  score      Int
+  field      String
+  date       String
+  import_id  Int?
+
+  member     Member   @relation(fields: [member_id], references: [id])
+}
+
+model PicoGloria {
+  id         Int      @id @default(autoincrement())
+  member_id  Int
+  round      Int
+  score      Int
+  team       String   @default("Livre")
+  date       String
+  import_id  Int?
+
+  member     Member   @relation(fields: [member_id], references: [id])
+}
+
+model Setting {
+  key   String @id
+  value String?
+}
+
+model FendaHistory {
+  id         Int      @id @default(autoincrement())
+  member_id  Int
+  crystals   BigInt
+  date       String
+  season     Int
+  import_id  Int?
+
+  member     Member   @relation(fields: [member_id], references: [id])
+}
+
+model RiftSeason {
+  id            Int      @id @default(autoincrement())
+  season_number Int      @unique
+  closed_at     String
+}
+
+model Import {
+  id                Int      @id @default(autoincrement())
+  user_id           Int
+  type              String
+  date              String
+  created_at        DateTime @default(now())
+  status            String   @default("success")
+  records_processed Int      @default(0)
+  error_message     String?
+}
+
+model AbsenceJustification {
+  id              Int      @id @default(autoincrement())
+  member_id       Int
+  date            String
+  tournament_type String
+  type            String
+  note            String?
+
+  member          Member   @relation(fields: [member_id], references: [id])
+}
+
+model StoredCsv {
+  id            Int      @id @default(autoincrement())
+  filename      String
+  original_name String
+  type          String
+  created_at    DateTime @default(now())
+}

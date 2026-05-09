@@ -7,7 +7,7 @@ import SortSelector from '../components/SortSelector';
 import Pagination from '../components/Pagination';
 import CSVImportButton from '../components/CSVImportButton';
 
-export default function Tournaments({ fetchApi }: { fetchApi: any }) {
+export default function Tournaments({ fetchApi, user }: { fetchApi: any, user: any }) {
   const [activeTab, setActiveTab] = useState('guerra_total');
   const [statusTab, setStatusTab] = useState<'ativos' | 'inativos'>('ativos');
   const [viewTab, setViewTab] = useState<'historico' | 'comparacao'>('historico');
@@ -28,6 +28,10 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
   const [sortCriteria, setSortCriteria] = useState<SortCriteria>('role');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(180);
+
+  const permissions = user?.permissions?.tournaments || 'view';
+  const canEdit = permissions === 'edit' || permissions === 'full';
+  const canFull = permissions === 'full';
 
   const loadMembers = async () => {
     const res = await fetchApi('/api/members');
@@ -254,15 +258,17 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
               <p className="mt-2 text-xs text-zinc-400">A data será registrada como o dia da importação, a menos que uma coluna <code className="text-emerald-400">Data</code> seja fornecida.</p>
             </div>
           </div>
-          <div className="print-hidden">
-            <CSVImportButton
-              type={activeTab}
-              fetchApi={fetchApi}
-              onPreview={setImportPreview}
-              onUploading={setUploading}
-              disabled={uploading}
-            />
-          </div>
+          {canFull && (
+            <div className="print-hidden">
+              <CSVImportButton
+                type={activeTab}
+                fetchApi={fetchApi}
+                onPreview={setImportPreview}
+                onUploading={setUploading}
+                disabled={uploading}
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -389,7 +395,7 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
               </div>
             )}
 
-            {selectedDate !== 'all' && (
+            {canFull && selectedDate !== 'all' && (
               <button
                 onClick={() => {
                   handleDeleteByDate(selectedDate);
@@ -487,13 +493,15 @@ export default function Tournaments({ fetchApi }: { fetchApi: any }) {
                     </>
                   )}
                   <td className="px-6 py-4">
-                    <button
-                      onClick={() => handleDeleteByDate(item.date)}
-                      className="text-zinc-400 hover:text-red-400 flex items-center gap-1"
-                      title="Excluir todos os registros desta data (Rollback)"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {canFull && (
+                      <button
+                        onClick={() => handleDeleteByDate(item.date)}
+                        className="text-zinc-400 hover:text-red-400 flex items-center gap-1"
+                        title="Excluir todos os registros desta data (Rollback)"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

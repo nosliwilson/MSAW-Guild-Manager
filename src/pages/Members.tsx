@@ -6,7 +6,7 @@ import Pagination from '../components/Pagination';
 import SortSelector from '../components/SortSelector';
 import CSVImportButton from '../components/CSVImportButton';
 
-export default function Members({ fetchApi }: { fetchApi: any }) {
+export default function Members({ fetchApi, user }: { fetchApi: any, user: any }) {
   const [members, setMembers] = useState<any[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [newNick, setNewNick] = useState('');
@@ -28,6 +28,10 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
   const [sortCriteria, setSortCriteria] = useState<SortCriteria>('role');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(180);
+
+  const permissions = user?.permissions?.members || 'view';
+  const canEdit = permissions === 'edit' || permissions === 'full';
+  const canFull = permissions === 'full';
 
   const loadMembers = async () => {
     const res = await fetchApi('/api/members');
@@ -215,22 +219,26 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
               <p className="mt-1">A data de entrada será a data atual, a menos que especificada.</p>
             </div>
           </div>
-          <div className="print-hidden">
-            <CSVImportButton
-              type="members"
-              fetchApi={fetchApi}
-              onPreview={setImportPreview}
-              onUploading={setUploading}
-              disabled={uploading}
-            />
-          </div>
-          <button
-            onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition-colors print-hidden"
-          >
-            <Plus className="w-4 h-4" />
-            Novo Membro
-          </button>
+          {canFull && (
+            <div className="print-hidden">
+              <CSVImportButton
+                type="members"
+                fetchApi={fetchApi}
+                onPreview={setImportPreview}
+                onUploading={setUploading}
+                disabled={uploading}
+              />
+            </div>
+          )}
+          {canEdit && (
+            <button
+              onClick={() => setShowAdd(true)}
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition-colors print-hidden"
+            >
+              <Plus className="w-4 h-4" />
+              Novo Membro
+            </button>
+          )}
         </div>
       </div>
 
@@ -306,7 +314,8 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
                   <select
                     value={m.status}
                     onChange={(e) => handleStatusChange(m, e.target.value)}
-                    className="bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-sm"
+                    disabled={!canEdit}
+                    className="bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-sm disabled:opacity-50"
                   >
                     <option value="ativo">Ativo</option>
                     <option value="inativo">Inativo</option>
@@ -315,30 +324,36 @@ export default function Members({ fetchApi }: { fetchApi: any }) {
                 <td className="px-6 py-4">{formatDate(m.entry_date)}</td>
                 <td className="px-6 py-4">{formatDate(m.exit_date)}</td>
                 <td className="px-6 py-4 flex gap-3 print-hidden">
-                  <button
-                    onClick={() => {
-                      setEditingMember(m);
-                      setEditNickValue(m.nick);
-                    }}
-                    className="text-zinc-400 hover:text-white flex items-center gap-1"
-                    title="Editar Nick"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => loadRoles(m)}
-                    className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
-                    title="Cargos"
-                  >
-                    <ShieldAlert className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteMember(m.id)}
-                    className="text-zinc-400 hover:text-red-400 flex items-center gap-1"
-                    title="Excluir Membro"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {canEdit && (
+                    <button
+                      onClick={() => {
+                        setEditingMember(m);
+                        setEditNickValue(m.nick);
+                      }}
+                      className="text-zinc-400 hover:text-white flex items-center gap-1"
+                      title="Editar Nick"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                  )}
+                  {canEdit && (
+                    <button
+                      onClick={() => loadRoles(m)}
+                      className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
+                      title="Cargos"
+                    >
+                      <ShieldAlert className="w-4 h-4" />
+                    </button>
+                  )}
+                  {canFull && (
+                    <button
+                      onClick={() => handleDeleteMember(m.id)}
+                      className="text-zinc-400 hover:text-red-400 flex items-center gap-1"
+                      title="Excluir Membro"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
