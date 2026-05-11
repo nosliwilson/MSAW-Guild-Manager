@@ -33,65 +33,100 @@ app.use(cookieParser());
 const prisma = new PrismaClient();
 
 const checkAndFixDatabase = async () => {
-  // We will keep the raw SQL for initial SQLite setup if needed, 
-  // but Prisma handles schema creation via `prisma db push` or `prisma migrate`.
-  // For this refactoring, we'll assume Prisma handles the schema, 
-  // but we'll keep the default admin creation using Prisma.
+  try {
+    // 1. Initial sanity check: Can we talk to the database at all?
+    await prisma.$queryRaw`SELECT 1`;
+  } catch (err: any) {
+    const errMsg = err.message || '';
+    if (errMsg.includes('malformed') || errMsg.includes('database disk image is malformed')) {
+      console.error('[DB CHECK] CRITICAL ERROR: Database file is malformed/corrupted.');
+      try {
+        const dbPath = path.resolve('guild.db');
+        if (fs.existsSync(dbPath)) {
+          const bakPath = `${dbPath}.malformed.${Date.now()}`;
+          fs.renameSync(dbPath, bakPath);
+          console.error(`[DB CHECK] Corrupted database renamed to ${bakPath}. A fresh database will be created.`);
+          // In a docker context, we might want to exit so the entrypoint can run db push again
+          console.error('[DB CHECK] Restarting process to trigger fresh DB initialization...');
+          process.exit(1); 
+        }
+      } catch (renameErr) {
+        console.error('[DB CHECK] Recovery failed:', renameErr);
+      }
+    } else {
+      console.error('[DB CHECK] Connection failed:', err);
+    }
+    return;
+  }
 
   try {
-    // Create default admin if not exists
-    const adminExists = await prisma.user.findUnique({ where: { username: 'admin' } });
-    if (!adminExists) {
+    // 2. Data integrity: Ensure essential records exist (Complement and adjust)
+    
+    // Create default admin if no users exist at all
+    const userCount = await prisma.user.count();
+    if (userCount === 0) {
+      console.log('[DB FIX] No users found. Creating default admin...');
       const hash = await bcrypt.hash('admin123', 10);
       await prisma.user.create({
         data: { username: 'admin', password_hash: hash, role: 'admin' }
       });
-      console.log('[DB Fix] Created default admin user');
+    }
+
+    // Ensure default settings exist
+    const settingsToEnsure = [
+      { key: 'fenda_season', value: '1' },
+      { key: 'guild_name', value: 'Metal Slug Guild' }
+    ];
+
+    for (const setting of settingsToEnsure) {
+      const exists = await prisma.setting.findUnique({ where: { key: setting.key } });
+      if (!exists) {
+        await prisma.setting.create({ data: setting });
+        console.log(`[DB FIX] Added missing setting: ${setting.key}`);
+      }
+    }
+
+    // Initialize default system roles if missing
+    const defaultRoles = [
+      {
+        name: 'admin',
+        permissions: {
+          members: { view: true, import: true, edit: true, delete: true },
+          fenda: { view: true, import: true, edit: true, delete: true },
+          tournaments: { view: true, import: true, edit: true, delete: true },
+          absences: { view: true, import: true, edit: true, delete: true },
+          settings: { view: true, import: true, edit: true, delete: true }
+        }
+      },
+      {
+        name: 'user',
+        permissions: {
+          members: { view: true, import: false, edit: false, delete: false },
+          fenda: { view: true, import: false, edit: false, delete: false },
+          tournaments: { view: true, import: false, edit: false, delete: false },
+          absences: { view: true, import: false, edit: false, delete: false },
+          settings: { view: false, import: false, edit: false, delete: false }
+        }
+      }
+    ];
+
+    for (const roleDef of defaultRoles) {
+      const exists = await prisma.systemRole.findUnique({ where: { name: roleDef.name } });
+      if (!exists) {
+        await prisma.systemRole.create({
+          data: {
+            name: roleDef.name,
+            permissions: JSON.stringify(roleDef.permissions)
+          }
+        });
+        console.log(`[DB FIX] Reconstructed missing role: ${roleDef.name}`);
+      }
     }
     
-    // Ensure default settings exist
-    const fendaSeason = await prisma.setting.findUnique({ where: { key: 'fenda_season' } });
-    if (!fendaSeason) {
-      await prisma.setting.create({
-        data: { key: 'fenda_season', value: '1' }
-      });
-    }
-
-    // Initialize default system roles
-    const adminRole = await prisma.systemRole.findUnique({ where: { name: 'admin' } });
-    if (!adminRole) {
-      await prisma.systemRole.create({
-        data: {
-          name: 'admin',
-          permissions: JSON.stringify({
-            members: { view: true, import: true, edit: true, delete: true },
-            fenda: { view: true, import: true, edit: true, delete: true },
-            tournaments: { view: true, import: true, edit: true, delete: true },
-            absences: { view: true, import: true, edit: true, delete: true },
-            settings: { view: true, import: true, edit: true, delete: true }
-          })
-        }
-      });
-    }
-
-    const userRole = await prisma.systemRole.findUnique({ where: { name: 'user' } });
-    if (!userRole) {
-      await prisma.systemRole.create({
-        data: {
-          name: 'user',
-          permissions: JSON.stringify({
-            members: { view: true, import: false, edit: false, delete: false },
-            fenda: { view: true, import: false, edit: false, delete: false },
-            tournaments: { view: true, import: false, edit: false, delete: false },
-            absences: { view: true, import: false, edit: false, delete: false },
-            settings: { view: false, import: false, edit: false, delete: false }
-          })
-        }
-      });
-    }
+    console.log('[DB CHECK] Database integrity check complete.');
 
   } catch (e) {
-    console.error('[DB Fix] Error initializing database:', e);
+    console.error('[DB FIX] Error during database adjustment:', e);
   }
 };
 
