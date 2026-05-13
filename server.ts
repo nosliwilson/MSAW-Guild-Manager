@@ -6,12 +6,59 @@ import multer from 'multer';
 import { parse } from 'csv-parse';
 import fs from 'fs';
 import path from 'path';
-import { PrismaClient } from '@prisma/client';
+import { execSync } from 'child_process';
+import { PrismaClient, Prisma } from '@prisma/client';
 import cookieParser from 'cookie-parser';
 
 const app = express();
 const PORT = 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-me';
+
+/**
+ * Trigger database recovery by renaming corrupted file and exiting.
+ * The Docker environment will restart the container and recreate the DB.
+ */
+function triggerDatabaseRecovery() {
+  try {
+    const dbPath = path.resolve('guild.db');
+    if (fs.existsSync(dbPath)) {
+      const bakPath = `${dbPath}.malformed.${Date.now()}`;
+      fs.renameSync(dbPath, bakPath);
+      console.error(`[DB RECOVERY] Corrupted database renamed to ${bakPath}.`);
+      console.error('[DB RECOVERY] Exiting process to trigger fresh initialization on restart...');
+      process.exit(1);
+    }
+  } catch (err) {
+    console.error('[DB RECOVERY] Failed to rename corrupted database:', err);
+    process.exit(1); // Still exit so container orchestrator can try to fix it
+  }
+}
+
+/**
+ * Handle Prisma errors gracefully.
+ */
+function handlePrismaError(e: any, res: any) {
+  if (e instanceof Prisma.PrismaClientUnknownRequestError) {
+    const message = e.message || '';
+    if (message.includes('malformed') || message.includes('database disk image is malformed')) {
+      console.error('[PRISMA ERROR] Detected database corruption at runtime. Triggering recovery...');
+      // Inform client and then recover
+      res.status(500).json({ error: 'Erro de integridade no banco de dados. O sistema está se recuperando e reiniciará em instantes.' });
+      
+      // Delay exit slightly to allow response to be sent
+      setTimeout(() => triggerDatabaseRecovery(), 1000);
+      return;
+    }
+  }
+  
+  if (e instanceof Prisma.PrismaClientKnownRequestError) {
+    // Handle specific known error codes if needed
+    // https://www.prisma.io/docs/reference/api-reference/error-reference#error-codes
+  }
+
+  console.error('[ERROR]', e);
+  res.status(500).json({ error: e.message || 'Erro interno no servidor' });
+}
 
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
@@ -32,35 +79,83 @@ app.use(cookieParser());
 // Setup Database
 const prisma = new PrismaClient();
 
+/**
+ * Validates table names to prevent SQL injection in raw queries.
+ */
+function isValidTableName(name: string): boolean {
+  return /^[a-zA-Z0-9_]+$/.test(name);
+}
+
+/**
+ * Standardized security logging for fail2ban and monitoring.
+ */
+function logSecurityEvent(req: any, type: string, details: string) {
+  // Robust IP detection for proxies
+  const forwarded = req.headers['x-forwarded-for'];
+  const ip = typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : req.ip || '0.0.0.0';
+  
+  const timestamp = new Date().toISOString();
+  console.log(`[SECURITY_EVENT] [${timestamp}] [IP: ${ip}] [TYPE: ${type}] [METHOD: ${req.method}] [URL: ${req.originalUrl || req.url}] [DETAILS: ${details}]`);
+  
+  // Save to DB asynchronously to avoid blocking the request
+  prisma.securityLog.create({
+    data: {
+      ip,
+      type,
+      method: req.method || 'UNKNOWN',
+      url: req.originalUrl || req.url || 'UNKNOWN',
+      details
+    }
+  }).catch(err => {
+    // Graceful failure for logging, don't want to break the app if DB is busy
+    console.error('[DB LOG ERROR] Failed to save security event:', err.message);
+  });
+}
+
+/**
+ * Robust database check and fix.
+ * Detects corruption (malformed disk image) and handles missing records.
+ */
 const checkAndFixDatabase = async () => {
+  const dbPath = path.resolve('guild.db');
+
+  // Check if DB exists, if not, try to push schema
+  if (!fs.existsSync(dbPath)) {
+    console.log('[DB CHECK] Database file missing. Running prisma db push...');
+    try {
+      execSync('npx prisma db push --skip-generate', { stdio: 'inherit' });
+      console.log('[DB CHECK] Database initialized successfully.');
+    } catch (err) {
+      console.error('[DB CHECK] Failed to initialize database:', err);
+    }
+  }
+
   try {
-    // 1. Initial sanity check: Can we talk to the database at all?
+    // 1. Connectivity check
+    console.log('[DB CHECK] Verifying database connectivity...');
     await prisma.$queryRaw`SELECT 1`;
   } catch (err: any) {
     const errMsg = err.message || '';
     if (errMsg.includes('malformed') || errMsg.includes('database disk image is malformed')) {
       console.error('[DB CHECK] CRITICAL ERROR: Database file is malformed/corrupted.');
+      triggerDatabaseRecovery();
+    } else if (errMsg.includes('does not exist') || errMsg.includes('no such table')) {
+      console.log('[DB CHECK] Tables missing. Attempting to sync schema...');
       try {
-        const dbPath = path.resolve('guild.db');
-        if (fs.existsSync(dbPath)) {
-          const bakPath = `${dbPath}.malformed.${Date.now()}`;
-          fs.renameSync(dbPath, bakPath);
-          console.error(`[DB CHECK] Corrupted database renamed to ${bakPath}. A fresh database will be created.`);
-          // In a docker context, we might want to exit so the entrypoint can run db push again
-          console.error('[DB CHECK] Restarting process to trigger fresh DB initialization...');
-          process.exit(1); 
-        }
-      } catch (renameErr) {
-        console.error('[DB CHECK] Recovery failed:', renameErr);
+        execSync('npx prisma db push --skip-generate', { stdio: 'inherit' });
+        console.log('[DB CHECK] Database schema synced successfully.');
+      } catch (pushErr) {
+        console.error('[DB CHECK] Failed to sync schema:', pushErr);
       }
     } else {
-      console.error('[DB CHECK] Connection failed:', err);
+      console.error('[DB CHECK] Connection failed for unknown reason:', err);
     }
     return;
   }
 
   try {
     // 2. Data integrity: Ensure essential records exist (Complement and adjust)
+    console.log('[DB CHECK] Running integrity and adjustment logic...');
     
     // Create default admin if no users exist at all
     const userCount = await prisma.user.count();
@@ -122,6 +217,18 @@ const checkAndFixDatabase = async () => {
         console.log(`[DB FIX] Reconstructed missing role: ${roleDef.name}`);
       }
     }
+
+    // Ensure at least one Rift Season if table is empty
+    const seasonCount = await prisma.riftSeason.count();
+    if (seasonCount === 0) {
+      await prisma.riftSeason.create({
+        data: {
+          season_number: 1,
+          closed_at: new Date().toISOString()
+        }
+      });
+      console.log('[DB FIX] Created default Rift Season 1');
+    }
     
     console.log('[DB CHECK] Database integrity check complete.');
 
@@ -129,9 +236,6 @@ const checkAndFixDatabase = async () => {
     console.error('[DB FIX] Error during database adjustment:', e);
   }
 };
-
-// Run on startup
-checkAndFixDatabase();
 
 // Multer for CSV uploads
 const upload = multer({ dest: 'uploads/' });
@@ -189,7 +293,7 @@ const checkPermission = (areaOrFn: string | ((req: any) => string), requiredLeve
       
       next();
     } catch (e) {
-      res.status(500).json({ error: 'Erro ao verificar permissões' });
+      handlePrismaError(e, res);
     }
   };
 };
@@ -203,32 +307,42 @@ app.post('/api/auth/login', async (req, res) => {
     return res.status(403).json({ error: 'CSRF protection check failed' });
   }
 
-  // Run DB fix on login as requested
-  // checkAndFixDatabase();
-  
-  const { username, password } = req.body;
-  const user = await prisma.user.findUnique({ where: { username } });
-  
-  if (!user) return res.status(400).json({ error: 'Usuário não encontrado' });
-  if (user.is_blocked) return res.status(403).json({ error: 'Usuário bloqueado' });
-  
-  if (await bcrypt.compare(password, user.password_hash)) {
-    const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
+  try {
+    const { username, password } = req.body;
+    const user = await prisma.user.findUnique({ where: { username } });
     
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none',
-      maxAge: 24 * 60 * 60 * 1000 // 24 hours
-    });
+    if (!user) {
+      logSecurityEvent(req, 'LOGIN_FAILED', `User not found: ${username}`);
+      return res.status(400).json({ error: 'Usuário não encontrado' });
+    }
     
-    // Fetch role permissions
-    const systemRole = await prisma.systemRole.findUnique({ where: { name: user.role } });
-    const permissions = systemRole ? JSON.parse(systemRole.permissions) : null;
+    if (user.is_blocked) {
+      logSecurityEvent(req, 'LOGIN_BLOCKED', `Blocked user attempted login: ${username}`);
+      return res.status(403).json({ error: 'Usuário bloqueado' });
+    }
+    
+    if (await bcrypt.compare(password, user.password_hash)) {
+      const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
+      
+      res.cookie('token', token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'none',
+        maxAge: 24 * 60 * 60 * 1000 // 24 hours
+      });
+      
+      // Fetch role permissions
+      const systemRole = await prisma.systemRole.findUnique({ where: { name: user.role } });
+      const permissions = systemRole ? JSON.parse(systemRole.permissions) : null;
 
-    res.json({ user: { id: user.id, username: user.username, role: user.role, permissions } });
-  } else {
-    res.status(400).json({ error: 'Senha incorreta' });
+      logSecurityEvent(req, 'LOGIN_SUCCESS', `User: ${username}`);
+      res.json({ user: { id: user.id, username: user.username, role: user.role, permissions } });
+    } else {
+      logSecurityEvent(req, 'LOGIN_FAILED', `Incorrect password for user: ${username}`);
+      res.status(400).json({ error: 'Senha incorreta' });
+    }
+  } catch (e) {
+    handlePrismaError(e, res);
   }
 });
 
@@ -401,10 +515,49 @@ app.delete('/api/users/:id', authenticateToken, async (req: any, res) => {
   }
 });
 
-app.post('/api/admin/sql', authenticateToken, async (req: any, res) => {
+// Security Logs Management
+app.get('/api/admin/security-logs', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  
+  const limit = parseInt(req.query.limit as string) || 50;
+  const offset = parseInt(req.query.offset as string) || 0;
+  
+  try {
+    const logs = await prisma.securityLog.findMany({
+      orderBy: { timestamp: 'desc' },
+      take: limit,
+      skip: offset
+    });
+    
+    const total = await prisma.securityLog.count();
+    
+    res.json({ logs, total });
+  } catch (e) {
+    handlePrismaError(e, res);
+  }
+});
+
+app.delete('/api/admin/security-logs', authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  
+  try {
+    await prisma.securityLog.deleteMany({});
+    logSecurityEvent(req, 'LOGS_CLEARED', `Admin ${req.user.username} cleared security logs`);
+    res.json({ success: true });
+  } catch (e) {
+    handlePrismaError(e, res);
+  }
+});
+
+app.post('/api/admin/sql', authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') {
+    logSecurityEvent(req, 'UNAUTHORIZED_SQL_ATTEMPT', `User: ${req.user.username}`);
+    return res.status(403).json({ error: 'Acesso negado' });
+  }
   const { query } = req.body;
   if (!query) return res.status(400).json({ error: 'Query is required' });
+  
+  logSecurityEvent(req, 'ADMIN_SQL_QUERY', `User: ${req.user.username} | Query: ${query.substring(0, 100)}...`);
   
   try {
     const isSelect = query.trim().toUpperCase().startsWith('SELECT') || query.trim().toUpperCase().startsWith('PRAGMA');
@@ -446,8 +599,14 @@ app.get('/api/admin/tables', authenticateToken, async (req: any, res) => {
 
 app.get('/api/admin/tables/:name/schema', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  if (!isValidTableName(req.params.name)) {
+    logSecurityEvent(req, 'SQL_INJECTION_ATTEMPT', `Invalid table name in schema: ${req.params.name}`);
+    return res.status(400).json({ error: 'Nome de tabela inválido' });
+  }
   try {
-    // Specific to SQLite
+    // Correctly using Prisma's raw query with parameterization where possible, 
+    // but PRAGMA table_info doesn't support placeholders in SQLite usually.
+    // Whitelist check above makes it safe.
     const schema = await prisma.$queryRawUnsafe(`PRAGMA table_info(${req.params.name})`);
     res.json(schema);
   } catch (e: any) {
@@ -457,6 +616,10 @@ app.get('/api/admin/tables/:name/schema', authenticateToken, async (req: any, re
 
 app.get('/api/admin/tables/:name/data', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  if (!isValidTableName(req.params.name)) {
+    logSecurityEvent(req, 'SQL_INJECTION_ATTEMPT', `Invalid table name in data: ${req.params.name}`);
+    return res.status(400).json({ error: 'Nome de tabela inválido' });
+  }
   const limit = parseInt(req.query.limit as string) || 100;
   const offset = parseInt(req.query.offset as string) || 0;
   try {
@@ -1511,6 +1674,9 @@ app.put('/api/members/:id/nick', authenticateToken, checkPermission('members', '
 });
 
 async function startServer() {
+  // Ensure DB is healthy before starting
+  await checkAndFixDatabase();
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -1520,10 +1686,27 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
+    
+    // Log non-existent static files (potential bot scans)
+    app.use('/assets', (req, res, next) => {
+      logSecurityEvent(req, 'BOT_FILE_SCAN', `Missing asset: ${req.url}`);
+      res.status(404).json({ error: 'Not found' });
+    });
+
     app.get('*', (req, res) => {
+      // If it looks like an API attempt or a direct file access that reached here, log it
+      if (req.url.startsWith('/api') || req.url.includes('.')) {
+        logSecurityEvent(req, 'NOT_FOUND_OR_BOT', `Path: ${req.url}`);
+      }
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  // Final fallback for truly non-existent paths (after SPA logic)
+  app.use((req, res) => {
+    logSecurityEvent(req, '404_NOT_FOUND', `Invalid access: ${req.url}`);
+    res.status(404).json({ error: 'Página não encontrada' });
+  });
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);

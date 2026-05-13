@@ -6,6 +6,7 @@ import UsersAdmin from './UsersAdmin';
 import SQLEditor from './SQLEditor';
 import StoredCSVs from './StoredCSVs';
 import RolesAdmin from './RolesAdmin';
+import SecurityLogs from './SecurityLogs';
 
 export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: any }) {
   const [activeTab, setActiveTab] = useState('database');
@@ -198,6 +199,16 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
           Editor SQL
           {activeTab === 'sql' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400" />}
         </button>
+        <button
+          onClick={() => setActiveTab('security')}
+          className={`px-4 py-3 text-sm font-medium transition-colors relative flex items-center gap-2 ${
+            activeTab === 'security' ? 'text-emerald-400' : 'text-zinc-400 hover:text-white'
+          }`}
+        >
+          <ShieldAlert className="w-4 h-4" />
+          Logs de Segurança
+          {activeTab === 'security' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400" />}
+        </button>
       </div>
 
       <div className="pt-4">
@@ -206,6 +217,7 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
         {activeTab === 'history' && <ImportsHistory fetchApi={fetchApi} user={user} />}
         {activeTab === 'csvs' && <StoredCSVs fetchApi={fetchApi} user={user} />}
         {activeTab === 'sql' && <SQLEditor fetchApi={fetchApi} />}
+        {activeTab === 'security' && <SecurityLogs fetchApi={fetchApi} />}
         
         {activeTab === 'database' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

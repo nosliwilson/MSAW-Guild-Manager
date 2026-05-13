@@ -176,3 +176,13 @@ model StoredCsv {
   type          String
   created_at    DateTime @default(now())
 }
+
+model SecurityLog {
+  id         Int      @id @default(autoincrement())
+  timestamp  DateTime @default(now())
+  ip         String
+  type       String
+  method     String
+  url        String
+  details    String
+}
