@@ -9,6 +9,7 @@ import path from 'path';
 import { execSync } from 'child_process';
 import { PrismaClient, Prisma } from '@prisma/client';
 import cookieParser from 'cookie-parser';
+import Database from 'better-sqlite3';
 
 const app = express();
 const PORT = 3000;
@@ -16,6 +17,17 @@ const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-me';
 if (JWT_SECRET === 'super-secret-key-change-me') {
   console.warn('[SECURITY] WARNING: JWT_SECRET is using default value.');
 }
+
+// Persistent storage configuration
+const PERSISTENT_DIR = process.env.PERSISTENT_DIR || 'data';
+const UPLOADS_DIR = path.join(PERSISTENT_DIR, 'uploads');
+const CSV_STORAGE_DIR = path.join(UPLOADS_DIR, 'csv');
+const BACKUPS_DIR = path.join(PERSISTENT_DIR, 'backups');
+
+// Ensure directories exist
+[PERSISTENT_DIR, UPLOADS_DIR, CSV_STORAGE_DIR, BACKUPS_DIR].forEach(dir => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+});
 
 function getDbPath(): string {
   const dbUrl = process.env.DATABASE_URL || '';
@@ -251,12 +263,7 @@ const checkAndFixDatabase = async () => {
 };
 
 // Multer for CSV uploads
-const upload = multer({ dest: 'uploads/' });
-
-// Ensure uploads/csv directory exists
-if (!fs.existsSync('uploads/csv')) {
-  fs.mkdirSync('uploads/csv', { recursive: true });
-}
+const upload = multer({ dest: UPLOADS_DIR });
 
 // Auth Middleware
 const authenticateToken = (req: any, res: any, next: any) => {
@@ -661,18 +668,15 @@ app.get('/api/admin/tables/:name/data', authenticateToken, async (req: any, res)
 
 app.get('/api/admin/db/download', authenticateToken, (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
-  res.download('guild.db', `guild_backup_${new Date().toISOString().split('T')[0]}.db`);
+  res.download(getDbPath(), `guild_backup_${new Date().toISOString().split('T')[0]}.db`);
 });
 
 app.post('/api/admin/db/backup', authenticateToken, (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   try {
-    if (!fs.existsSync('backups')) {
-      fs.mkdirSync('backups');
-    }
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backupName = `guild_backup_${timestamp}.db`;
-    fs.copyFileSync('guild.db', `backups/${backupName}`);
+    fs.copyFileSync(getDbPath(), path.join(BACKUPS_DIR, backupName));
     res.json({ success: true, message: 'Backup criado com sucesso', filename: backupName });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -682,18 +686,15 @@ app.post('/api/admin/db/backup', authenticateToken, (req: any, res) => {
 app.get('/api/admin/db/backups', authenticateToken, (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   try {
-    if (!fs.existsSync('backups')) {
-      return res.json([]);
-    }
-    const files = fs.readdirSync('backups').filter(f => f.endsWith('.db'));
+    const files = fs.readdirSync(BACKUPS_DIR).filter(f => f.endsWith('.db'));
     const backups = files.map(f => {
-      const stats = fs.statSync(`backups/${f}`);
+      const stats = fs.statSync(path.join(BACKUPS_DIR, f));
       return {
         filename: f,
         size: stats.size,
-        date: stats.mtime
+        createdAt: stats.mtime
       };
-    }).sort((a, b) => b.date.getTime() - a.date.getTime());
+    }).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     res.json(backups);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -704,14 +705,14 @@ app.post('/api/admin/db/restore/:filename', authenticateToken, async (req: any, 
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   try {
     const filename = path.basename(req.params.filename);
-    const backupPath = `backups/${filename}`;
+    const backupPath = path.join(BACKUPS_DIR, filename);
     if (!fs.existsSync(backupPath)) {
       return res.status(404).json({ error: 'Backup não encontrado' });
     }
     
     // Disconnect Prisma before replacing the file
     await prisma.$disconnect();
-    fs.copyFileSync(backupPath, 'guild.db');
+    fs.copyFileSync(backupPath, getDbPath());
     // Reconnect Prisma
     await prisma.$connect();
     await checkAndFixDatabase();
@@ -727,9 +728,10 @@ app.post('/api/admin/db/upload-restore', authenticateToken, upload.single('file'
   if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
   
   try {
+    const dbPath = getDbPath();
     // Disconnect Prisma before replacing the file
     await prisma.$disconnect();
-    fs.copyFileSync(req.file.path, 'guild.db');
+    fs.copyFileSync(req.file.path, dbPath);
     // Reconnect Prisma
     await prisma.$connect();
     await checkAndFixDatabase();
@@ -748,14 +750,17 @@ app.get('/api/admin/db/export', authenticateToken, async (req: any, res) => {
       users: await prisma.user.findMany(),
       settings: await prisma.setting.findMany(),
       members: await prisma.member.findMany(),
-      memberRoles: await prisma.memberRole.findMany(),
-      powerHistory: await prisma.powerHistory.findMany(),
-      guerraTotal: await prisma.guerraTotal.findMany(),
-      torneioCeleste: await prisma.torneioCeleste.findMany(),
-      picoGloria: await prisma.picoGloria.findMany(),
-      fendaHistory: await prisma.fendaHistory.findMany(),
-      riftSeasons: await prisma.riftSeason.findMany(),
-      absenceJustifications: await prisma.absenceJustification.findMany(),
+      member_roles: await prisma.memberRole.findMany(),
+      power_history: await prisma.powerHistory.findMany(),
+      guerra_total: await prisma.guerraTotal.findMany(),
+      torneio_celeste: await prisma.torneioCeleste.findMany(),
+      pico_gloria: await prisma.picoGloria.findMany(),
+      fenda_history: await prisma.fendaHistory.findMany(),
+      rift_seasons: await prisma.riftSeason.findMany(),
+      absence_justifications: await prisma.absenceJustification.findMany(),
+      imports: await prisma.import.findMany(),
+      stored_csvs: await prisma.storedCsv.findMany(),
+      system_roles: await prisma.systemRole.findMany(),
     };
     
     // Convert BigInt to string
@@ -799,19 +804,45 @@ app.post('/api/admin/db/import', authenticateToken, upload.single('file'), async
       prisma.powerHistory.deleteMany(),
       prisma.memberRole.deleteMany(),
       prisma.member.deleteMany(),
+      prisma.storedCsv.deleteMany(),
+      prisma.import.deleteMany(),
       prisma.riftSeason.deleteMany(),
       prisma.setting.deleteMany(),
+      prisma.systemRole.deleteMany(),
       prisma.user.deleteMany(),
     ]);
 
-    // Import data
-    if (data.users && data.users.length > 0) await prisma.user.createMany({ data: data.users });
-    if (data.settings && data.settings.length > 0) await prisma.setting.createMany({ data: data.settings });
-    if (data.riftSeasons && data.riftSeasons.length > 0) await prisma.riftSeason.createMany({ data: data.riftSeasons });
+    // Data format helper to support both camelCase and snake_case
+    const getData = (keyCamel: string, keySnake: string) => data[keyCamel] || data[keySnake] || [];
+
+    // Import data in correct dependency order
+    const systemRoles = getData('systemRoles', 'system_roles');
+    if (systemRoles.length > 0) await prisma.systemRole.createMany({ data: systemRoles });
+
+    const users = getData('users', 'users');
+    if (users.length > 0) await prisma.user.createMany({ data: users });
+
+    const settings = getData('settings', 'settings');
+    if (settings.length > 0) await prisma.setting.createMany({ data: settings });
+
+    const imports = getData('imports', 'imports');
+    if (imports.length > 0) {
+      // Map back timestamps if they are strings
+      const importsMapped = imports.map((i: any) => ({
+        ...i,
+        created_at: i.created_at ? new Date(i.created_at) : new Date()
+      }));
+      await prisma.import.createMany({ data: importsMapped });
+    }
+
+    const riftSeasons = getData('riftSeasons', 'rift_seasons');
+    if (riftSeasons.length > 0) await prisma.riftSeason.createMany({ data: riftSeasons });
     
-    if (data.members && data.members.length > 0) await prisma.member.createMany({ data: data.members });
+    const members = getData('members', 'members');
+    if (members.length > 0) await prisma.member.createMany({ data: members });
     
-    if (data.memberRoles && data.memberRoles.length > 0) await prisma.memberRole.createMany({ data: data.memberRoles });
+    const memberRoles = getData('memberRoles', 'member_roles');
+    if (memberRoles.length > 0) await prisma.memberRole.createMany({ data: memberRoles });
     
     // Convert string back to BigInt for BigInt fields
     const mapBigInt = (arr: any[], fields: string[]) => arr.map(item => {
@@ -824,18 +855,38 @@ app.post('/api/admin/db/import', authenticateToken, upload.single('file'), async
       return newItem;
     });
 
-    if (data.powerHistory && data.powerHistory.length > 0) {
-      await prisma.powerHistory.createMany({ data: mapBigInt(data.powerHistory, ['power']) });
+    const powerHistory = getData('powerHistory', 'power_history');
+    if (powerHistory.length > 0) {
+      await prisma.powerHistory.createMany({ data: mapBigInt(powerHistory, ['power']) });
     }
-    if (data.guerraTotal && data.guerraTotal.length > 0) {
-      await prisma.guerraTotal.createMany({ data: mapBigInt(data.guerraTotal, ['power']) });
+
+    const guerraTotal = getData('guerraTotal', 'guerra_total');
+    if (guerraTotal.length > 0) {
+      await prisma.guerraTotal.createMany({ data: mapBigInt(guerraTotal, ['power']) });
     }
-    if (data.torneioCeleste && data.torneioCeleste.length > 0) await prisma.torneioCeleste.createMany({ data: data.torneioCeleste });
-    if (data.picoGloria && data.picoGloria.length > 0) await prisma.picoGloria.createMany({ data: data.picoGloria });
-    if (data.fendaHistory && data.fendaHistory.length > 0) {
-      await prisma.fendaHistory.createMany({ data: mapBigInt(data.fendaHistory, ['crystals']) });
+
+    const torneioCeleste = getData('torneioCeleste', 'torneio_celeste');
+    if (torneioCeleste.length > 0) await prisma.torneioCeleste.createMany({ data: torneioCeleste });
+
+    const picoGloria = getData('picoGloria', 'pico_gloria');
+    if (picoGloria.length > 0) await prisma.picoGloria.createMany({ data: picoGloria });
+
+    const fendaHistory = getData('fendaHistory', 'fenda_history');
+    if (fendaHistory.length > 0) {
+      await prisma.fendaHistory.createMany({ data: mapBigInt(fendaHistory, ['crystals']) });
     }
-    if (data.absenceJustifications && data.absenceJustifications.length > 0) await prisma.absenceJustification.createMany({ data: data.absenceJustifications });
+
+    const absenceJustifications = getData('absenceJustifications', 'absence_justifications');
+    if (absenceJustifications.length > 0) await prisma.absenceJustification.createMany({ data: absenceJustifications });
+
+    const storedCSVs = getData('storedCsvs', 'stored_csvs');
+    if (storedCSVs.length > 0) {
+      const storedCSVsMapped = storedCSVs.map((c: any) => ({
+        ...c,
+        created_at: c.created_at ? new Date(c.created_at) : new Date()
+      }));
+      await prisma.storedCsv.createMany({ data: storedCSVsMapped });
+    }
     
     fs.unlinkSync(req.file.path);
     res.json({ success: true, message: 'Dados importados com sucesso' });
@@ -1272,7 +1323,7 @@ app.post('/api/upload/:type/preview', authenticateToken, checkPermission(req => 
 
   if (shouldStore) {
     const newFilename = `${Date.now()}-${req.file.originalname}`;
-    const newPath = path.join('uploads/csv', newFilename);
+    const newPath = path.join(CSV_STORAGE_DIR, newFilename);
     fs.copyFileSync(req.file.path, newPath);
     await prisma.storedCsv.create({
       data: { filename: newFilename, original_name: req.file.originalname, type }
@@ -1317,7 +1368,7 @@ app.get('/api/stored-csvs/:id/download', authenticateToken, async (req, res) => 
   const csv = await prisma.storedCsv.findUnique({ where: { id: parseInt(req.params.id) } });
   if (!csv) return res.status(404).json({ error: 'Arquivo não encontrado' });
   
-  const filePath = path.join('uploads/csv', csv.filename);
+  const filePath = path.join(CSV_STORAGE_DIR, csv.filename);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Arquivo físico não encontrado' });
   
   res.download(filePath, csv.original_name);
@@ -1329,7 +1380,7 @@ app.delete('/api/stored-csvs/:id', authenticateToken, async (req: any, res) => {
   const csv = await prisma.storedCsv.findUnique({ where: { id: parseInt(req.params.id) } });
   if (!csv) return res.status(404).json({ error: 'Arquivo não encontrado' });
   
-  const filePath = path.join('uploads/csv', csv.filename);
+  const filePath = path.join(CSV_STORAGE_DIR, csv.filename);
   if (fs.existsSync(filePath)) {
     fs.unlinkSync(filePath);
   }
@@ -1352,7 +1403,7 @@ app.post('/api/stored-csvs/upload', authenticateToken, upload.single('file'), as
   }
 
   const newFilename = `${Date.now()}-${req.file.originalname}`;
-  const newPath = path.join('uploads/csv', newFilename);
+  const newPath = path.join(CSV_STORAGE_DIR, newFilename);
   fs.copyFileSync(req.file.path, newPath);
   fs.unlinkSync(req.file.path);
 
@@ -1366,7 +1417,7 @@ app.get('/api/stored-csvs/:id/preview', authenticateToken, async (req, res) => {
   const csv = await prisma.storedCsv.findUnique({ where: { id: parseInt(req.params.id) } });
   if (!csv) return res.status(404).json({ error: 'Arquivo não encontrado' });
   
-  const filePath = path.join('uploads/csv', csv.filename);
+  const filePath = path.join(CSV_STORAGE_DIR, csv.filename);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Arquivo físico não encontrado' });
   
   const results: any[] = [];
@@ -1682,6 +1733,226 @@ app.put('/api/members/:id/nick', authenticateToken, checkPermission('members', '
     if (e.code === 'P2002') { // Prisma unique constraint violation code
       return res.status(400).json({ error: 'Este nick já está em uso por outro membro' });
     }
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- High-Level Data Migration API (SQLite) ---
+
+app.post('/api/admin/db/import-sqlite', authenticateToken, upload.single('file'), async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+
+  try {
+    const db = new Database(req.file.path);
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as {name: string}[];
+    
+    const results: any = {};
+    for (const table of tables) {
+      try {
+        results[table.name] = db.prepare(`SELECT * FROM ${table.name}`).all();
+      } catch (e) {
+        console.warn(`[SQLITE IMPORT] Could not read table ${table.name}:`, e);
+      }
+    }
+    db.close();
+
+    // Mapping table and column names for compatibility
+    const normalize = (data: any[]) => {
+      return data.map(row => {
+        const newRow: any = {};
+        for (const key in row) {
+          // Map snake_case to camelCase if needed, or specific name overrides
+          let newKey = key.toLowerCase();
+          if (newKey === 'passwordhash') newKey = 'password_hash';
+          if (newKey === 'isblocked') newKey = 'is_blocked';
+          if (newKey === 'entrydate') newKey = 'entry_date';
+          if (newKey === 'exitdate') newKey = 'exit_date';
+          if (newKey === 'memberid') newKey = 'member_id';
+          if (newKey === 'startdate') newKey = 'start_date';
+          if (newKey === 'enddate') newKey = 'end_date';
+          if (newKey === 'importid') newKey = 'import_id';
+          if (newKey === 'createdat') newKey = 'created_at';
+          if (newKey === 'riftseason') newKey = 'rift_season';
+          if (newKey === 'seasonnumber') newKey = 'season_number';
+          if (newKey === 'closedat') newKey = 'closed_at';
+          if (newKey === 'tournamenttype') newKey = 'tournament_type';
+          
+          newRow[newKey] = row[key];
+        }
+        return newRow;
+      });
+    };
+
+    // Helper to find data by prioritized table name
+    const getTableData = (primaryName: string, ...alternatives: string[]) => {
+      const names = [primaryName, primaryName.toLowerCase(), primaryName.toUpperCase(), ...alternatives];
+      for (const name of names) {
+        if (results[name]) return normalize(results[name]);
+      }
+      return [];
+    };
+
+    const finalData = {
+      users: getTableData('User', 'users'),
+      settings: getTableData('Setting', 'settings'),
+      members: getTableData('Member', 'members'),
+      member_roles: getTableData('MemberRole', 'member_roles'),
+      power_history: getTableData('PowerHistory', 'power_history'),
+      guerra_total: getTableData('GuerraTotal', 'guerra_total'),
+      torneio_celeste: getTableData('TorneioCeleste', 'torneio_celeste'),
+      pico_gloria: getTableData('PicoGloria', 'pico_gloria'),
+      fenda_history: getTableData('FendaHistory', 'fenda_history', 'fendaHistory'),
+      rift_seasons: getTableData('RiftSeason', 'rift_seasons'),
+      absence_justifications: getTableData('AbsenceJustification', 'absence_justifications'),
+      imports: getTableData('Import', 'imports'),
+      stored_csvs: getTableData('StoredCsv', 'stored_csvs', 'storedCsv'),
+      system_roles: getTableData('SystemRole', 'system_roles', 'system_role'),
+    };
+
+    // Re-use logic from JSON import by simulating its structure
+    // We send finalData as the 'data' to process
+    
+    // START DB RESET (Copied from /api/admin/db/import)
+    await prisma.$transaction([
+      prisma.absenceJustification.deleteMany(),
+      prisma.fendaHistory.deleteMany(),
+      prisma.picoGloria.deleteMany(),
+      prisma.torneioCeleste.deleteMany(),
+      prisma.guerraTotal.deleteMany(),
+      prisma.powerHistory.deleteMany(),
+      prisma.memberRole.deleteMany(),
+      prisma.member.deleteMany(),
+      prisma.storedCsv.deleteMany(),
+      prisma.import.deleteMany(),
+      prisma.riftSeason.deleteMany(),
+      prisma.setting.deleteMany(),
+      prisma.systemRole.deleteMany(),
+      prisma.user.deleteMany(),
+    ]);
+
+    const getData = (key: string) => (finalData as any)[key] || [];
+
+    // Import Role-based data first
+    const systemRoles = getData('system_roles');
+    if (systemRoles.length > 0) await prisma.systemRole.createMany({ data: systemRoles });
+
+    const users = getData('users');
+    if (users.length > 0) await prisma.user.createMany({ data: users });
+
+    const settings = getData('settings');
+    if (settings.length > 0) await prisma.setting.createMany({ data: settings });
+
+    const imports = getData('imports');
+    if (imports.length > 0) {
+      await prisma.import.createMany({ data: imports.map((i: any) => ({ ...i, created_at: i.created_at ? new Date(i.created_at) : new Date() })) });
+    }
+
+    const riftSeasons = getData('rift_seasons');
+    if (riftSeasons.length > 0) await prisma.riftSeason.createMany({ data: riftSeasons });
+    
+    const members = getData('members');
+    if (members.length > 0) await prisma.member.createMany({ data: members });
+    
+    const memberRoles = getData('member_roles');
+    if (memberRoles.length > 0) await prisma.memberRole.createMany({ data: memberRoles });
+    
+    const mapBigInt = (arr: any[], fields: string[]) => arr.map(item => {
+      const newItem = { ...item };
+      for (const field of fields) {
+        if (newItem[field] !== undefined && newItem[field] !== null) {
+          newItem[field] = BigInt(newItem[field]);
+        }
+      }
+      return newItem;
+    });
+
+    const powerHistory = getData('power_history');
+    if (powerHistory.length > 0) await prisma.powerHistory.createMany({ data: mapBigInt(powerHistory, ['power']) });
+
+    const guerraTotal = getData('guerra_total');
+    if (guerraTotal.length > 0) await prisma.guerraTotal.createMany({ data: mapBigInt(guerraTotal, ['power']) });
+
+    const torneioCeleste = getData('torneio_celeste');
+    if (torneioCeleste.length > 0) await prisma.torneioCeleste.createMany({ data: torneioCeleste });
+
+    const picoGloria = getData('pico_gloria');
+    if (picoGloria.length > 0) await prisma.picoGloria.createMany({ data: picoGloria });
+
+    const fendaHistory = getData('fenda_history');
+    if (fendaHistory.length > 0) await prisma.fendaHistory.createMany({ data: mapBigInt(fendaHistory, ['crystals']) });
+
+    const absenceJustifications = getData('absence_justifications');
+    if (absenceJustifications.length > 0) await prisma.absenceJustification.createMany({ data: absenceJustifications });
+
+    const storedCSVs = getData('stored_csvs');
+    if (storedCSVs.length > 0) {
+      await prisma.storedCsv.createMany({ data: storedCSVs.map((c: any) => ({ ...c, created_at: c.created_at ? new Date(c.created_at) : new Date() })) });
+    }
+    
+    fs.unlinkSync(req.file.path);
+    res.json({ success: true, message: 'Dados migrados do SQLite com sucesso' });
+
+  } catch (e: any) {
+    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    console.error('[SQLITE IMPORT ERROR]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- Folder Scanning API ---
+
+app.post('/api/admin/scan-csv-folder', authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  
+  try {
+    // We scan both the uploads root and the csv storage subfolder
+    const filesInUploads = fs.readdirSync(UPLOADS_DIR).filter(f => f.toLowerCase().endsWith('.csv'));
+    const filesInCsv = fs.readdirSync(CSV_STORAGE_DIR).filter(f => f.toLowerCase().endsWith('.csv'));
+    
+    const allCsvs = [
+      ...filesInUploads.map(f => ({ name: f, path: path.join(UPLOADS_DIR, f), isRoot: true })),
+      ...filesInCsv.map(f => ({ name: f, path: path.join(CSV_STORAGE_DIR, f), isRoot: false }))
+    ];
+    
+    let addedCount = 0;
+    for (const file of allCsvs) {
+      // Check for both exact filename and original_name match to avoid duplicates
+      const exists = await prisma.storedCsv.findFirst({ 
+        where: { 
+          OR: [
+            { filename: file.name },
+            { original_name: file.name }
+          ]
+        } 
+      });
+
+      if (!exists) {
+        // Try to guess type from filename
+        let type = 'power';
+        const name = file.name.toLowerCase();
+        if (name.includes('celeste')) type = 'torneio_celeste';
+        else if (name.includes('gloria') || name.includes('picode')) type = 'pico_gloria';
+        else if (name.includes('guerra')) type = 'guerra_total';
+        else if (name.includes('fenda') || name.includes('cristais')) type = 'fenda';
+        else if (name.includes('membros') || name.includes('members')) type = 'members';
+        
+        let finalFilename = file.name;
+        if (file.isRoot) {
+          finalFilename = `${Date.now()}-${file.name}`;
+          fs.copyFileSync(file.path, path.join(CSV_STORAGE_DIR, finalFilename));
+          fs.unlinkSync(file.path);
+        }
+        
+        await prisma.storedCsv.create({
+          data: { filename: finalFilename, original_name: file.name, type }
+        });
+        addedCount++;
+      }
+    }
+    
+    res.json({ success: true, added: addedCount });
+  } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
 });

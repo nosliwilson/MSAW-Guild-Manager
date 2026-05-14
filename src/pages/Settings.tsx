@@ -45,9 +45,8 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
     if (!confirm(`Tem certeza que deseja restaurar o backup ${filename}? O banco atual será substituído.`)) return;
     setLoading(true);
     try {
-      await fetchApi('/api/admin/db/restore', {
-        method: 'POST',
-        body: JSON.stringify({ filename })
+      await fetchApi(`/api/admin/db/restore/${filename}`, {
+        method: 'POST'
       });
       alert('Backup restaurado com sucesso! A página será recarregada.');
       window.location.reload();
@@ -64,6 +63,51 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
     try {
       await fetchApi(`/api/admin/db/backup/${filename}`, { method: 'DELETE' });
       loadBackups();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleImportSQLite = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!confirm('Atenção: A migração SQLite irá apagar os dados atuais e tentar importar as tabelas do arquivo enviado. Deseja continuar?')) {
+      e.target.value = '';
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      await fetchApi('/api/admin/db/import-sqlite', {
+        method: 'POST',
+        body: formData
+      });
+      
+      alert('Dados migrados com sucesso! A página será recarregada.');
+      window.location.reload();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setLoading(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleScanFolder = async () => {
+    setLoading(true);
+    try {
+      const res = await fetchApi('/api/admin/scan-csv-folder', { method: 'POST' });
+      const data = await res.json();
+      alert(`${data.added} novos arquivos CSV foram encontrados e adicionados à lista.`);
+      if (activeTab === 'csvs') {
+        // If we had a CSV refresh function we would call it here
+      }
     } catch (err: any) {
       alert(err.message);
     } finally {
@@ -260,6 +304,39 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
                       disabled={loading}
                     />
                   </label>
+                </div>
+
+                <div className="p-4 bg-zinc-950 rounded-lg border border-amber-900/30">
+                  <h3 className="text-sm font-medium text-amber-400 mb-2">Migrar de SQLite Antigo (.db)</h3>
+                  <p className="text-xs text-zinc-400 mb-4">
+                    Importe dados diretamente de um arquivo de banco de dados SQLite antigo. O sistema tentará mapear as tabelas automaticamente.
+                  </p>
+                  <label className="w-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 font-medium py-2 rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer border border-amber-500/20">
+                    <Database className="w-4 h-4" />
+                    {loading ? 'Processando...' : 'Migrar SQLite (.db)'}
+                    <input
+                      type="file"
+                      accept=".db,.sqlite"
+                      className="hidden"
+                      onChange={handleImportSQLite}
+                      disabled={loading}
+                    />
+                  </label>
+                </div>
+
+                <div className="p-4 bg-zinc-950 rounded-lg border border-blue-900/30">
+                  <h3 className="text-sm font-medium text-blue-400 mb-2">Varredura de Pasta de Uploads</h3>
+                  <p className="text-xs text-zinc-400 mb-4">
+                    Verifica a pasta <code>/uploads</code> por novos arquivos CSV que foram copiados manualmente para o servidor.
+                  </p>
+                  <button
+                    onClick={handleScanFolder}
+                    disabled={loading}
+                    className="w-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 font-medium py-2 rounded-lg transition-colors flex items-center justify-center gap-2 border border-blue-500/20"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                    Sincronizar Pasta de Uploads
+                  </button>
                 </div>
               </div>
             </div>
