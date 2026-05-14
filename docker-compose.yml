@@ -3,12 +3,12 @@ services:
     build: .
     ports:
       - "3000:3000"
+    volumes:
+      - ./data:/app/data
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=file:/app/guild.db
+      - DATABASE_URL=file:/app/data/guild.db
       - JWT_SECRET=change-this-to-something-secure
-    volumes:
-      - ./guild.db:/app/guild.db
     restart: always
 
 volumes:

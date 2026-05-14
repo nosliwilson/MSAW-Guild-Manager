@@ -13,6 +13,9 @@ import cookieParser from 'cookie-parser';
 const app = express();
 const PORT = 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-me';
+if (JWT_SECRET === 'super-secret-key-change-me') {
+  console.warn('[SECURITY] WARNING: JWT_SECRET is using default value.');
+}
 
 /**
  * Trigger database recovery by renaming corrupted file and exiting.
