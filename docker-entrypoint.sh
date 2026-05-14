@@ -3,7 +3,11 @@ set -e
 
 echo "Starting deployment entrypoint..."
 
-DB_FILE="guild.db"
+# Path should match DATABASE_URL and docker-compose volume
+DB_FILE="/app/data/guild.db"
+
+# Ensure data directory exists
+mkdir -p /app/data
 
 # Check if database is malformed using sqlite3 if available, or a simple prisma check
 if [ -f "$DB_FILE" ]; then

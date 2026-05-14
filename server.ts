@@ -17,13 +17,23 @@ if (JWT_SECRET === 'super-secret-key-change-me') {
   console.warn('[SECURITY] WARNING: JWT_SECRET is using default value.');
 }
 
+function getDbPath(): string {
+  const dbUrl = process.env.DATABASE_URL || '';
+  if (dbUrl.startsWith('file:')) {
+    // Handle both file:path and file://path
+    const rawPath = dbUrl.replace(/^file:(\/\/)?/, '');
+    return path.resolve(rawPath);
+  }
+  return path.resolve('guild.db');
+}
+
 /**
  * Trigger database recovery by renaming corrupted file and exiting.
  * The Docker environment will restart the container and recreate the DB.
  */
 function triggerDatabaseRecovery() {
   try {
-    const dbPath = path.resolve('guild.db');
+    const dbPath = getDbPath();
     if (fs.existsSync(dbPath)) {
       const bakPath = `${dbPath}.malformed.${Date.now()}`;
       fs.renameSync(dbPath, bakPath);
@@ -120,7 +130,7 @@ function logSecurityEvent(req: any, type: string, details: string) {
  * Detects corruption (malformed disk image) and handles missing records.
  */
 const checkAndFixDatabase = async () => {
-  const dbPath = path.resolve('guild.db');
+  const dbPath = getDbPath();
 
   // Check if DB exists, if not, try to push schema
   if (!fs.existsSync(dbPath)) {
