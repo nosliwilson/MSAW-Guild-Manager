@@ -112,6 +112,29 @@ function isValidTableName(name: string): boolean {
 }
 
 /**
+ * Resets SQLite auto-increment sequences after bulk manual inserts.
+ */
+async function resetSqliteSequences() {
+  try {
+    await prisma.$transaction(async (tx) => {
+      const tables: any[] = await tx.$queryRawUnsafe("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'prisma_%'");
+      for (const table of tables) {
+        const tableName = table.name;
+        if (tableName === 'sqlite_sequence') continue;
+        
+        const maxIdRes: any[] = await tx.$queryRawUnsafe(`SELECT MAX(id) as maxId FROM "${tableName}"`);
+        const maxId = maxIdRes[0]?.maxId || 0;
+        
+        await tx.$executeRawUnsafe(`INSERT OR REPLACE INTO sqlite_sequence (name, seq) VALUES ('${tableName}', ${maxId})`);
+      }
+    });
+    console.log('[DB] SQLite sequences reset successfully.');
+  } catch (e) {
+    console.warn('[DB] Failed to reset SQLite sequences (this is normal if no sequences exist yet):', e);
+  }
+}
+
+/**
  * Standardized security logging for fail2ban and monitoring.
  */
 function logSecurityEvent(req: any, type: string, details: string) {
@@ -336,7 +359,7 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Usuário não encontrado' });
     }
     
-    if (user.is_blocked) {
+    if (user.is_blocked === 1 || user.is_blocked === true) {
       logSecurityEvent(req, 'LOGIN_BLOCKED', `Blocked user attempted login: ${username}`);
       return res.status(403).json({ error: 'Usuário bloqueado' });
     }
@@ -376,14 +399,18 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 app.get('/api/auth/me', authenticateToken, async (req: any, res) => {
-  const user = await prisma.user.findUnique({ where: { id: req.user.id } });
-  if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
-  if (user.is_blocked) return res.status(403).json({ error: 'Usuário bloqueado' });
-  
-  const systemRole = await prisma.systemRole.findUnique({ where: { name: user.role } });
-  const permissions = systemRole ? JSON.parse(systemRole.permissions) : null;
-  
-  res.json({ user: { id: user.id, username: user.username, role: user.role, permissions } });
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+    if (user.is_blocked === 1 || user.is_blocked === true) return res.status(403).json({ error: 'Usuário bloqueado' });
+    
+    const systemRole = await prisma.systemRole.findUnique({ where: { name: user.role } });
+    const permissions = systemRole ? JSON.parse(systemRole.permissions) : null;
+    
+    res.json({ user: { id: user.id, username: user.username, role: user.role, permissions } });
+  } catch (e) {
+    handlePrismaError(e, res);
+  }
 });
 
 app.post('/api/auth/register', authenticateToken, async (req: any, res) => {
@@ -796,6 +823,7 @@ app.post('/api/admin/db/import', authenticateToken, upload.single('file'), async
     
     // Delete all existing data first (in reverse order of dependencies)
     await prisma.$transaction([
+      prisma.securityLog.deleteMany(),
       prisma.absenceJustification.deleteMany(),
       prisma.fendaHistory.deleteMany(),
       prisma.picoGloria.deleteMany(),
@@ -887,6 +915,8 @@ app.post('/api/admin/db/import', authenticateToken, upload.single('file'), async
       }));
       await prisma.storedCsv.createMany({ data: storedCSVsMapped });
     }
+    
+    await resetSqliteSequences();
     
     fs.unlinkSync(req.file.path);
     res.json({ success: true, message: 'Dados importados com sucesso' });
@@ -1815,6 +1845,7 @@ app.post('/api/admin/db/import-sqlite', authenticateToken, upload.single('file')
     
     // START DB RESET (Copied from /api/admin/db/import)
     await prisma.$transaction([
+      prisma.securityLog.deleteMany(),
       prisma.absenceJustification.deleteMany(),
       prisma.fendaHistory.deleteMany(),
       prisma.picoGloria.deleteMany(),
@@ -1890,6 +1921,8 @@ app.post('/api/admin/db/import-sqlite', authenticateToken, upload.single('file')
       await prisma.storedCsv.createMany({ data: storedCSVs.map((c: any) => ({ ...c, created_at: c.created_at ? new Date(c.created_at) : new Date() })) });
     }
     
+    await resetSqliteSequences();
+    
     fs.unlinkSync(req.file.path);
     res.json({ success: true, message: 'Dados migrados do SQLite com sucesso' });
 
@@ -1902,22 +1935,17 @@ app.post('/api/admin/db/import-sqlite', authenticateToken, upload.single('file')
 
 // --- Folder Scanning API ---
 
-app.post('/api/admin/scan-csv-folder', authenticateToken, async (req: any, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
-  
+async function scanAndRegisterCsvs() {
   try {
-    // We scan both the uploads root and the csv storage subfolder
-    const filesInUploads = fs.readdirSync(UPLOADS_DIR).filter(f => f.toLowerCase().endsWith('.csv'));
-    const filesInCsv = fs.readdirSync(CSV_STORAGE_DIR).filter(f => f.toLowerCase().endsWith('.csv'));
+    const filesInUploads = fs.existsSync(UPLOADS_DIR) ? fs.readdirSync(UPLOADS_DIR).filter(f => f.toLowerCase().endsWith('.csv')) : [];
+    const filesInCsv = fs.existsSync(CSV_STORAGE_DIR) ? fs.readdirSync(CSV_STORAGE_DIR).filter(f => f.toLowerCase().endsWith('.csv')) : [];
     
     const allCsvs = [
       ...filesInUploads.map(f => ({ name: f, path: path.join(UPLOADS_DIR, f), isRoot: true })),
       ...filesInCsv.map(f => ({ name: f, path: path.join(CSV_STORAGE_DIR, f), isRoot: false }))
     ];
     
-    let addedCount = 0;
     for (const file of allCsvs) {
-      // Check for both exact filename and original_name match to avoid duplicates
       const exists = await prisma.storedCsv.findFirst({ 
         where: { 
           OR: [
@@ -1928,7 +1956,6 @@ app.post('/api/admin/scan-csv-folder', authenticateToken, async (req: any, res) 
       });
 
       if (!exists) {
-        // Try to guess type from filename
         let type = 'power';
         const name = file.name.toLowerCase();
         if (name.includes('celeste')) type = 'torneio_celeste';
@@ -1947,11 +1974,21 @@ app.post('/api/admin/scan-csv-folder', authenticateToken, async (req: any, res) 
         await prisma.storedCsv.create({
           data: { filename: finalFilename, original_name: file.name, type }
         });
-        addedCount++;
       }
     }
-    
-    res.json({ success: true, added: addedCount });
+  } catch (e) {
+    console.error('[AUTO-SCAN] Error:', e);
+  }
+}
+
+app.post('/api/admin/scan-csv-folder', authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  
+  try {
+    const before = await prisma.storedCsv.count();
+    await scanAndRegisterCsvs();
+    const after = await prisma.storedCsv.count();
+    res.json({ success: true, added: after - before });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -1960,6 +1997,9 @@ app.post('/api/admin/scan-csv-folder', authenticateToken, async (req: any, res) 
 async function startServer() {
   // Ensure DB is healthy before starting
   await checkAndFixDatabase();
+  
+  // Auto-scan CSVs in folders
+  await scanAndRegisterCsvs();
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
