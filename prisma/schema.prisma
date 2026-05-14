@@ -22,10 +22,10 @@ generator client {
 //    Backups, and upload the JSON file you exported in step 1.
 // ============================================================================
 
-// --- ACTIVE: SQLite (Uses environment variable) ---
+// --- ACTIVE: SQLite ---
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
+  url      = "file:../data/guild.db"
 }
 
 // --- OPTION: PostgreSQL ---

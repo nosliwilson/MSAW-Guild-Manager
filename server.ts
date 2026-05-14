@@ -1,5 +1,9 @@
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
@@ -23,6 +27,7 @@ const PERSISTENT_DIR = process.env.PERSISTENT_DIR || 'data';
 const UPLOADS_DIR = path.join(PERSISTENT_DIR, 'uploads');
 const CSV_STORAGE_DIR = path.join(UPLOADS_DIR, 'csv');
 const BACKUPS_DIR = path.join(PERSISTENT_DIR, 'backups');
+const SECURITY_LOG_FILE = path.join(PERSISTENT_DIR, 'security.log');
 
 // Ensure directories exist
 [PERSISTENT_DIR, UPLOADS_DIR, CSV_STORAGE_DIR, BACKUPS_DIR].forEach(dir => {
@@ -36,7 +41,7 @@ function getDbPath(): string {
     const rawPath = dbUrl.replace(/^file:(\/\/)?/, '');
     return path.resolve(rawPath);
   }
-  return path.resolve('guild.db');
+  return path.resolve('data/guild.db');
 }
 
 /**
@@ -143,7 +148,15 @@ function logSecurityEvent(req: any, type: string, details: string) {
   const ip = typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : req.ip || '0.0.0.0';
   
   const timestamp = new Date().toISOString();
-  console.log(`[SECURITY_EVENT] [${timestamp}] [IP: ${ip}] [TYPE: ${type}] [METHOD: ${req.method}] [URL: ${req.originalUrl || req.url}] [DETAILS: ${details}]`);
+  const logMessage = `[SECURITY_EVENT] [${timestamp}] [IP: ${ip}] [TYPE: ${type}] [METHOD: ${req.method}] [URL: ${req.originalUrl || req.url}] [DETAILS: ${details}]`;
+  console.log(logMessage);
+  
+  // Write to file for fail2ban
+  try {
+    fs.appendFileSync(SECURITY_LOG_FILE, logMessage + '\n');
+  } catch (e) {
+    console.error('[FILE LOG ERROR] Failed to write to security.log:', e);
+  }
   
   // Save to DB asynchronously to avoid blocking the request
   prisma.securityLog.create({
