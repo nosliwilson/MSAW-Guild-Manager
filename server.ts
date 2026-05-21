@@ -117,6 +117,129 @@ function isValidTableName(name: string): boolean {
 }
 
 /**
+ * Safe sanitization helpers for old database versions / structures.
+ */
+function sanitizeInt(val: any, def = 0): number {
+  if (val === undefined || val === null) return def;
+  if (typeof val === 'number') return Math.floor(val);
+  const parsed = parseInt(val, 10);
+  return isNaN(parsed) ? def : parsed;
+}
+
+function mapOldUsers(arr: any[]) {
+  return arr.map(item => ({
+    ...item,
+    is_blocked: (item.is_blocked === true || item.is_blocked === 1 || String(item.is_blocked).toLowerCase() === 'true') ? 1 : 0
+  }));
+}
+
+function mapOldRiftSeasons(arr: any[]) {
+  return arr.map(item => ({
+    ...item,
+    season_number: sanitizeInt(item.season_number, 1),
+  }));
+}
+
+function mapOldMemberRoles(arr: any[]) {
+  return arr.map(item => ({
+    ...item,
+    member_id: sanitizeInt(item.member_id)
+  }));
+}
+
+function mapOldPowerHistory(arr: any[]) {
+  return arr.map(item => {
+    let pVal = BigInt(0);
+    try {
+      pVal = item.power !== undefined && item.power !== null ? BigInt(item.power) : BigInt(0);
+    } catch (_) {}
+    return {
+      ...item,
+      member_id: sanitizeInt(item.member_id),
+      power: pVal,
+      import_id: item.import_id !== undefined && item.import_id !== null ? sanitizeInt(item.import_id, null as any) : null
+    };
+  });
+}
+
+function mapOldGuerraTotal(arr: any[]) {
+  return arr.map(item => {
+    let pVal = BigInt(0);
+    try {
+      pVal = item.power !== undefined && item.power !== null ? BigInt(item.power) : BigInt(0);
+    } catch (_) {}
+    return {
+      ...item,
+      member_id: sanitizeInt(item.member_id),
+      power: pVal,
+      import_id: item.import_id !== undefined && item.import_id !== null ? sanitizeInt(item.import_id, null as any) : null
+    };
+  });
+}
+
+function mapOldTorneioCeleste(arr: any[]) {
+  return arr.map(item => ({
+    ...item,
+    member_id: sanitizeInt(item.member_id),
+    score: sanitizeInt(item.score),
+    import_id: item.import_id !== undefined && item.import_id !== null ? sanitizeInt(item.import_id, null as any) : null
+  }));
+}
+
+function mapOldPicoGloria(arr: any[]) {
+  return arr.map(item => {
+    let roundVal = 1;
+    if (item.round !== undefined && item.round !== null) {
+      if (typeof item.round === 'string') {
+        const match = item.round.match(/\d+/);
+        roundVal = match ? parseInt(match[0], 10) : 1;
+      } else {
+        roundVal = parseInt(item.round, 10) || 1;
+      }
+    }
+    return {
+      ...item,
+      member_id: sanitizeInt(item.member_id),
+      round: roundVal,
+      score: sanitizeInt(item.score),
+      import_id: item.import_id !== undefined && item.import_id !== null ? sanitizeInt(item.import_id, null as any) : null
+    };
+  });
+}
+
+function mapOldFendaHistory(arr: any[]) {
+  return arr.map(item => {
+    let seasonVal = 1;
+    if (item.season !== undefined && item.season !== null) {
+      if (typeof item.season === 'string') {
+        const match = item.season.match(/\d+/);
+        seasonVal = match ? parseInt(match[0], 10) : 1;
+      } else {
+        seasonVal = parseInt(item.season, 10) || 1;
+      }
+    }
+    let cryVal = BigInt(0);
+    try {
+      cryVal = item.crystals !== undefined && item.crystals !== null ? BigInt(item.crystals) : BigInt(0);
+    } catch (_) {}
+    return {
+      ...item,
+      member_id: sanitizeInt(item.member_id),
+      crystals: cryVal,
+      season: seasonVal,
+      import_id: item.import_id !== undefined && item.import_id !== null ? sanitizeInt(item.import_id, null as any) : null
+    };
+  });
+}
+
+function mapOldAbsenceJustification(arr: any[]) {
+  return arr.map(item => ({
+    ...item,
+    member_id: sanitizeInt(item.member_id),
+  }));
+}
+
+/**
  * Resets SQLite auto-increment sequences after bulk manual inserts.
  */
 async function resetSqliteSequences() {
@@ -861,7 +984,7 @@ app.post('/api/admin/db/import', authenticateToken, upload.single('file'), async
     if (systemRoles.length > 0) await prisma.systemRole.createMany({ data: systemRoles });
 
     const users = getData('users', 'users');
-    if (users.length > 0) await prisma.user.createMany({ data: users });
+    if (users.length > 0) await prisma.user.createMany({ data: mapOldUsers(users) });
 
     const settings = getData('settings', 'settings');
     if (settings.length > 0) await prisma.setting.createMany({ data: settings });
@@ -877,48 +1000,37 @@ app.post('/api/admin/db/import', authenticateToken, upload.single('file'), async
     }
 
     const riftSeasons = getData('riftSeasons', 'rift_seasons');
-    if (riftSeasons.length > 0) await prisma.riftSeason.createMany({ data: riftSeasons });
+    if (riftSeasons.length > 0) await prisma.riftSeason.createMany({ data: mapOldRiftSeasons(riftSeasons) });
     
     const members = getData('members', 'members');
     if (members.length > 0) await prisma.member.createMany({ data: members });
     
     const memberRoles = getData('memberRoles', 'member_roles');
-    if (memberRoles.length > 0) await prisma.memberRole.createMany({ data: memberRoles });
-    
-    // Convert string back to BigInt for BigInt fields
-    const mapBigInt = (arr: any[], fields: string[]) => arr.map(item => {
-      const newItem = { ...item };
-      for (const field of fields) {
-        if (newItem[field] !== undefined && newItem[field] !== null) {
-          newItem[field] = BigInt(newItem[field]);
-        }
-      }
-      return newItem;
-    });
+    if (memberRoles.length > 0) await prisma.memberRole.createMany({ data: mapOldMemberRoles(memberRoles) });
 
     const powerHistory = getData('powerHistory', 'power_history');
     if (powerHistory.length > 0) {
-      await prisma.powerHistory.createMany({ data: mapBigInt(powerHistory, ['power']) });
+      await prisma.powerHistory.createMany({ data: mapOldPowerHistory(powerHistory) });
     }
 
     const guerraTotal = getData('guerraTotal', 'guerra_total');
     if (guerraTotal.length > 0) {
-      await prisma.guerraTotal.createMany({ data: mapBigInt(guerraTotal, ['power']) });
+      await prisma.guerraTotal.createMany({ data: mapOldGuerraTotal(guerraTotal) });
     }
 
     const torneioCeleste = getData('torneioCeleste', 'torneio_celeste');
-    if (torneioCeleste.length > 0) await prisma.torneioCeleste.createMany({ data: torneioCeleste });
+    if (torneioCeleste.length > 0) await prisma.torneioCeleste.createMany({ data: mapOldTorneioCeleste(torneioCeleste) });
 
     const picoGloria = getData('picoGloria', 'pico_gloria');
-    if (picoGloria.length > 0) await prisma.picoGloria.createMany({ data: picoGloria });
+    if (picoGloria.length > 0) await prisma.picoGloria.createMany({ data: mapOldPicoGloria(picoGloria) });
 
     const fendaHistory = getData('fendaHistory', 'fenda_history');
     if (fendaHistory.length > 0) {
-      await prisma.fendaHistory.createMany({ data: mapBigInt(fendaHistory, ['crystals']) });
+      await prisma.fendaHistory.createMany({ data: mapOldFendaHistory(fendaHistory) });
     }
 
     const absenceJustifications = getData('absenceJustifications', 'absence_justifications');
-    if (absenceJustifications.length > 0) await prisma.absenceJustification.createMany({ data: absenceJustifications });
+    if (absenceJustifications.length > 0) await prisma.absenceJustification.createMany({ data: mapOldAbsenceJustification(absenceJustifications) });
 
     const storedCSVs = getData('storedCsvs', 'stored_csvs');
     if (storedCSVs.length > 0) {
@@ -1882,7 +1994,7 @@ app.post('/api/admin/db/import-sqlite', authenticateToken, upload.single('file')
     if (systemRoles.length > 0) await prisma.systemRole.createMany({ data: systemRoles });
 
     const users = getData('users');
-    if (users.length > 0) await prisma.user.createMany({ data: users });
+    if (users.length > 0) await prisma.user.createMany({ data: mapOldUsers(users) });
 
     const settings = getData('settings');
     if (settings.length > 0) await prisma.setting.createMany({ data: settings });
@@ -1893,41 +2005,31 @@ app.post('/api/admin/db/import-sqlite', authenticateToken, upload.single('file')
     }
 
     const riftSeasons = getData('rift_seasons');
-    if (riftSeasons.length > 0) await prisma.riftSeason.createMany({ data: riftSeasons });
+    if (riftSeasons.length > 0) await prisma.riftSeason.createMany({ data: mapOldRiftSeasons(riftSeasons) });
     
     const members = getData('members');
     if (members.length > 0) await prisma.member.createMany({ data: members });
     
     const memberRoles = getData('member_roles');
-    if (memberRoles.length > 0) await prisma.memberRole.createMany({ data: memberRoles });
-    
-    const mapBigInt = (arr: any[], fields: string[]) => arr.map(item => {
-      const newItem = { ...item };
-      for (const field of fields) {
-        if (newItem[field] !== undefined && newItem[field] !== null) {
-          newItem[field] = BigInt(newItem[field]);
-        }
-      }
-      return newItem;
-    });
+    if (memberRoles.length > 0) await prisma.memberRole.createMany({ data: mapOldMemberRoles(memberRoles) });
 
     const powerHistory = getData('power_history');
-    if (powerHistory.length > 0) await prisma.powerHistory.createMany({ data: mapBigInt(powerHistory, ['power']) });
+    if (powerHistory.length > 0) await prisma.powerHistory.createMany({ data: mapOldPowerHistory(powerHistory) });
 
     const guerraTotal = getData('guerra_total');
-    if (guerraTotal.length > 0) await prisma.guerraTotal.createMany({ data: mapBigInt(guerraTotal, ['power']) });
+    if (guerraTotal.length > 0) await prisma.guerraTotal.createMany({ data: mapOldGuerraTotal(guerraTotal) });
 
     const torneioCeleste = getData('torneio_celeste');
-    if (torneioCeleste.length > 0) await prisma.torneioCeleste.createMany({ data: torneioCeleste });
+    if (torneioCeleste.length > 0) await prisma.torneioCeleste.createMany({ data: mapOldTorneioCeleste(torneioCeleste) });
 
     const picoGloria = getData('pico_gloria');
-    if (picoGloria.length > 0) await prisma.picoGloria.createMany({ data: picoGloria });
+    if (picoGloria.length > 0) await prisma.picoGloria.createMany({ data: mapOldPicoGloria(picoGloria) });
 
     const fendaHistory = getData('fenda_history');
-    if (fendaHistory.length > 0) await prisma.fendaHistory.createMany({ data: mapBigInt(fendaHistory, ['crystals']) });
+    if (fendaHistory.length > 0) await prisma.fendaHistory.createMany({ data: mapOldFendaHistory(fendaHistory) });
 
     const absenceJustifications = getData('absence_justifications');
-    if (absenceJustifications.length > 0) await prisma.absenceJustification.createMany({ data: absenceJustifications });
+    if (absenceJustifications.length > 0) await prisma.absenceJustification.createMany({ data: mapOldAbsenceJustification(absenceJustifications) });
 
     const storedCSVs = getData('stored_csvs');
     if (storedCSVs.length > 0) {
