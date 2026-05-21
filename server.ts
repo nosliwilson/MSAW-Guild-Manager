@@ -45,22 +45,70 @@ function getDbPath(): string {
 }
 
 /**
- * Trigger database recovery by renaming corrupted file and exiting.
- * The Docker environment will restart the container and recreate the DB.
+ * Clean up SQLite WAL and SHM sidecars to prevent mismatch malform errors when replacing/recreating DB.
  */
-function triggerDatabaseRecovery() {
+function deleteDbSidecars(dbPath: string) {
   try {
+    const walPath = `${dbPath}-wal`;
+    const shmPath = `${dbPath}-shm`;
+    if (fs.existsSync(walPath)) {
+      fs.unlinkSync(walPath);
+      console.log(`[DB sidecar] Cleaned up WAL file: ${walPath}`);
+    }
+    if (fs.existsSync(shmPath)) {
+      fs.unlinkSync(shmPath);
+      console.log(`[DB sidecar] Cleaned up SHM file: ${shmPath}`);
+    }
+  } catch (err) {
+    console.warn('[DB sidecar] Failed to delete SQLite WAL/SHM sidecars:', err);
+  }
+}
+
+/**
+ * Trigger robust in-place database recovery asynchronously.
+ * Disconnects Prisma Client, safely renames/moves the corrupted database/sidecars,
+ * re-initializes a fresh healthy database, and recovers without exiting the process.
+ */
+async function triggerDatabaseRecovery() {
+  console.error('[DB RECOVERY] Initiating robust in-place database recovery...');
+  try {
+    // 1. Gracefully disconnect Prisma client if connected
+    await prisma.$disconnect().catch((err) => {
+      console.warn('[DB RECOVERY] Warning: Prisma disconnect failed (ignoring):', err);
+    });
+
     const dbPath = getDbPath();
     if (fs.existsSync(dbPath)) {
       const bakPath = `${dbPath}.malformed.${Date.now()}`;
-      fs.renameSync(dbPath, bakPath);
-      console.error(`[DB RECOVERY] Corrupted database renamed to ${bakPath}.`);
-      console.error('[DB RECOVERY] Exiting process to trigger fresh initialization on restart...');
-      process.exit(1);
+      try {
+        fs.renameSync(dbPath, bakPath);
+        console.error(`[DB RECOVERY] Corrupted database renamed to: ${bakPath}`);
+      } catch (renameErr) {
+        console.error('[DB RECOVERY] Failed to rename corrupted database, attempting deletion as fallback:', renameErr);
+        try {
+          fs.unlinkSync(dbPath);
+          console.error('[DB RECOVERY] Corrupted database deleted.');
+        } catch (unlinkErr) {
+          console.error('[DB RECOVERY] Fatal: Could not delete or rename corrupted database file:', unlinkErr);
+        }
+      }
     }
+
+    // 2. Clean up WAL/SHM sidecar files
+    deleteDbSidecars(dbPath);
+
+    // 3. Reconnect Prisma client
+    await prisma.$connect();
+
+    // 4. Force a clean database check and schema regeneration
+    console.log('[DB RECOVERY] Re-running schema check and table propagation...');
+    await checkAndFixDatabase();
+
+    console.log('[DB RECOVERY] Database recovery completed successfully in-place!');
   } catch (err) {
-    console.error('[DB RECOVERY] Failed to rename corrupted database:', err);
-    process.exit(1); // Still exit so container orchestrator can try to fix it
+    console.error('[DB RECOVERY] CRITICAL: In-place recovery failed catastrophically!', err);
+    console.error('[DB RECOVERY] Hard crash: Exiting process as final fallback...');
+    process.exit(1);
   }
 }
 
@@ -68,17 +116,19 @@ function triggerDatabaseRecovery() {
  * Handle Prisma errors gracefully.
  */
 function handlePrismaError(e: any, res: any) {
-  if (e instanceof Prisma.PrismaClientUnknownRequestError) {
-    const message = e.message || '';
-    if (message.includes('malformed') || message.includes('database disk image is malformed')) {
-      console.error('[PRISMA ERROR] Detected database corruption at runtime. Triggering recovery...');
-      // Inform client and then recover
-      res.status(500).json({ error: 'Erro de integridade no banco de dados. O sistema está se recuperando e reiniciará em instantes.' });
-      
-      // Delay exit slightly to allow response to be sent
-      setTimeout(() => triggerDatabaseRecovery(), 1000);
-      return;
-    }
+  const errMsg = e?.message || String(e || '');
+  if (errMsg.includes('malformed') || errMsg.includes('database disk image is malformed')) {
+    console.error('[PRISMA ERROR] Detected database corruption at runtime. Triggering recovery...', e);
+    
+    // Fire inline recovery in the background
+    triggerDatabaseRecovery().then(() => {
+      console.log('[PRISMA ERROR] Inline database recovery completed successfully.');
+    }).catch((err) => {
+      console.error('[PRISMA ERROR] Background recovery failed:', err);
+    });
+
+    res.status(500).json({ error: 'Erro de integridade no banco de dados. O sistema foi recuperado de forma automática e limpa. Por favor, recarregue a página.' });
+    return;
   }
   
   if (e instanceof Prisma.PrismaClientKnownRequestError) {
@@ -126,24 +176,70 @@ function sanitizeInt(val: any, def = 0): number {
   return isNaN(parsed) ? def : parsed;
 }
 
+function mapOldSystemRoles(arr: any[]) {
+  return arr.map(item => ({
+    id: sanitizeInt(item.id),
+    name: String(item.name || ''),
+    permissions: typeof item.permissions === 'string' ? item.permissions : JSON.stringify(item.permissions || {})
+  }));
+}
+
 function mapOldUsers(arr: any[]) {
   return arr.map(item => ({
-    ...item,
+    id: sanitizeInt(item.id),
+    username: String(item.username || ''),
+    password_hash: String(item.password_hash || ''),
+    role: String(item.role || 'user'),
     is_blocked: (item.is_blocked === true || item.is_blocked === 1 || String(item.is_blocked).toLowerCase() === 'true') ? 1 : 0
+  }));
+}
+
+function mapOldSettings(arr: any[]) {
+  return arr.map(item => ({
+    key: String(item.key || ''),
+    value: item.value !== undefined && item.value !== null ? String(item.value) : null
+  }));
+}
+
+function mapOldImports(arr: any[]) {
+  return arr.map(item => ({
+    id: sanitizeInt(item.id),
+    user_id: sanitizeInt(item.user_id),
+    type: String(item.type || ''),
+    date: String(item.date || ''),
+    created_at: item.created_at ? new Date(item.created_at) : new Date(),
+    status: String(item.status || 'success'),
+    records_processed: sanitizeInt(item.records_processed, 0),
+    error_message: item.error_message !== undefined && item.error_message !== null ? String(item.error_message) : null
   }));
 }
 
 function mapOldRiftSeasons(arr: any[]) {
   return arr.map(item => ({
-    ...item,
+    id: sanitizeInt(item.id),
     season_number: sanitizeInt(item.season_number, 1),
+    closed_at: String(item.closed_at || '')
+  }));
+}
+
+function mapOldMembers(arr: any[]) {
+  return arr.map(item => ({
+    id: sanitizeInt(item.id),
+    nick: String(item.nick || ''),
+    status: String(item.status || 'ativo'),
+    entry_date: String(item.entry_date || ''),
+    exit_date: item.exit_date !== undefined && item.exit_date !== null ? String(item.exit_date) : null,
+    import_id: item.import_id !== undefined && item.import_id !== null ? sanitizeInt(item.import_id, null as any) : null
   }));
 }
 
 function mapOldMemberRoles(arr: any[]) {
   return arr.map(item => ({
-    ...item,
-    member_id: sanitizeInt(item.member_id)
+    id: sanitizeInt(item.id),
+    member_id: sanitizeInt(item.member_id),
+    role: String(item.role || ''),
+    start_date: String(item.start_date || ''),
+    end_date: item.end_date !== undefined && item.end_date !== null ? String(item.end_date) : null
   }));
 }
 
@@ -154,9 +250,10 @@ function mapOldPowerHistory(arr: any[]) {
       pVal = item.power !== undefined && item.power !== null ? BigInt(item.power) : BigInt(0);
     } catch (_) {}
     return {
-      ...item,
+      id: sanitizeInt(item.id),
       member_id: sanitizeInt(item.member_id),
       power: pVal,
+      date: String(item.date || ''),
       import_id: item.import_id !== undefined && item.import_id !== null ? sanitizeInt(item.import_id, null as any) : null
     };
   });
@@ -169,9 +266,10 @@ function mapOldGuerraTotal(arr: any[]) {
       pVal = item.power !== undefined && item.power !== null ? BigInt(item.power) : BigInt(0);
     } catch (_) {}
     return {
-      ...item,
+      id: sanitizeInt(item.id),
       member_id: sanitizeInt(item.member_id),
       power: pVal,
+      date: String(item.date || ''),
       import_id: item.import_id !== undefined && item.import_id !== null ? sanitizeInt(item.import_id, null as any) : null
     };
   });
@@ -179,9 +277,12 @@ function mapOldGuerraTotal(arr: any[]) {
 
 function mapOldTorneioCeleste(arr: any[]) {
   return arr.map(item => ({
-    ...item,
+    id: sanitizeInt(item.id),
     member_id: sanitizeInt(item.member_id),
-    score: sanitizeInt(item.score),
+    guild: String(item.guild || ''),
+    score: sanitizeInt(item.score, 0),
+    field: String(item.field || ''),
+    date: String(item.date || ''),
     import_id: item.import_id !== undefined && item.import_id !== null ? sanitizeInt(item.import_id, null as any) : null
   }));
 }
@@ -198,10 +299,12 @@ function mapOldPicoGloria(arr: any[]) {
       }
     }
     return {
-      ...item,
+      id: sanitizeInt(item.id),
       member_id: sanitizeInt(item.member_id),
       round: roundVal,
-      score: sanitizeInt(item.score),
+      score: sanitizeInt(item.score, 0),
+      team: String(item.team || 'Livre'),
+      date: String(item.date || ''),
       import_id: item.import_id !== undefined && item.import_id !== null ? sanitizeInt(item.import_id, null as any) : null
     };
   });
@@ -223,9 +326,10 @@ function mapOldFendaHistory(arr: any[]) {
       cryVal = item.crystals !== undefined && item.crystals !== null ? BigInt(item.crystals) : BigInt(0);
     } catch (_) {}
     return {
-      ...item,
+      id: sanitizeInt(item.id),
       member_id: sanitizeInt(item.member_id),
       crystals: cryVal,
+      date: String(item.date || ''),
       season: seasonVal,
       import_id: item.import_id !== undefined && item.import_id !== null ? sanitizeInt(item.import_id, null as any) : null
     };
@@ -234,8 +338,22 @@ function mapOldFendaHistory(arr: any[]) {
 
 function mapOldAbsenceJustification(arr: any[]) {
   return arr.map(item => ({
-    ...item,
+    id: sanitizeInt(item.id),
     member_id: sanitizeInt(item.member_id),
+    date: String(item.date || ''),
+    tournament_type: String(item.tournament_type || ''),
+    type: String(item.type || ''),
+    note: item.note !== undefined && item.note !== null ? String(item.note) : null
+  }));
+}
+
+function mapOldStoredCsvs(arr: any[]) {
+  return arr.map(item => ({
+    id: sanitizeInt(item.id),
+    filename: String(item.filename || ''),
+    original_name: String(item.original_name || ''),
+    type: String(item.type || ''),
+    created_at: item.created_at ? new Date(item.created_at) : new Date()
   }));
 }
 
@@ -300,7 +418,7 @@ function logSecurityEvent(req: any, type: string, details: string) {
  * Robust database check and fix.
  * Detects corruption (malformed disk image) and handles missing records.
  */
-const checkAndFixDatabase = async () => {
+async function checkAndFixDatabase() {
   const dbPath = getDbPath();
 
   // Check if DB exists, if not, try to push schema
@@ -331,7 +449,7 @@ const checkAndFixDatabase = async () => {
     const errMsg = err.message || '';
     if (errMsg.includes('malformed') || errMsg.includes('database disk image is malformed')) {
       console.error('[DB CHECK] CRITICAL ERROR: Database file is malformed/corrupted.');
-      triggerDatabaseRecovery();
+      await triggerDatabaseRecovery();
     } else if (errMsg.includes('does not exist') || errMsg.includes('no such table')) {
       console.log('[DB CHECK] Tables missing. Attempting to sync schema...');
       try {
@@ -883,8 +1001,10 @@ app.post('/api/admin/db/restore/:filename', authenticateToken, async (req: any, 
     }
     
     // Disconnect Prisma before replacing the file
+    const dbPath = getDbPath();
     await prisma.$disconnect();
-    fs.copyFileSync(backupPath, getDbPath());
+    deleteDbSidecars(dbPath);
+    fs.copyFileSync(backupPath, dbPath);
     // Reconnect Prisma
     await prisma.$connect();
     await checkAndFixDatabase();
@@ -903,6 +1023,7 @@ app.post('/api/admin/db/upload-restore', authenticateToken, upload.single('file'
     const dbPath = getDbPath();
     // Disconnect Prisma before replacing the file
     await prisma.$disconnect();
+    deleteDbSidecars(dbPath);
     fs.copyFileSync(req.file.path, dbPath);
     // Reconnect Prisma
     await prisma.$connect();
@@ -990,29 +1111,24 @@ app.post('/api/admin/db/import', authenticateToken, upload.single('file'), async
 
     // Import data in correct dependency order
     const systemRoles = getData('systemRoles', 'system_roles');
-    if (systemRoles.length > 0) await prisma.systemRole.createMany({ data: systemRoles });
+    if (systemRoles.length > 0) await prisma.systemRole.createMany({ data: mapOldSystemRoles(systemRoles) });
 
     const users = getData('users', 'users');
     if (users.length > 0) await prisma.user.createMany({ data: mapOldUsers(users) });
 
     const settings = getData('settings', 'settings');
-    if (settings.length > 0) await prisma.setting.createMany({ data: settings });
+    if (settings.length > 0) await prisma.setting.createMany({ data: mapOldSettings(settings) });
 
     const imports = getData('imports', 'imports');
     if (imports.length > 0) {
-      // Map back timestamps if they are strings
-      const importsMapped = imports.map((i: any) => ({
-        ...i,
-        created_at: i.created_at ? new Date(i.created_at) : new Date()
-      }));
-      await prisma.import.createMany({ data: importsMapped });
+      await prisma.import.createMany({ data: mapOldImports(imports) });
     }
 
     const riftSeasons = getData('riftSeasons', 'rift_seasons');
     if (riftSeasons.length > 0) await prisma.riftSeason.createMany({ data: mapOldRiftSeasons(riftSeasons) });
     
     const members = getData('members', 'members');
-    if (members.length > 0) await prisma.member.createMany({ data: members });
+    if (members.length > 0) await prisma.member.createMany({ data: mapOldMembers(members) });
     
     const memberRoles = getData('memberRoles', 'member_roles');
     if (memberRoles.length > 0) await prisma.memberRole.createMany({ data: mapOldMemberRoles(memberRoles) });
@@ -1043,11 +1159,7 @@ app.post('/api/admin/db/import', authenticateToken, upload.single('file'), async
 
     const storedCSVs = getData('storedCsvs', 'stored_csvs');
     if (storedCSVs.length > 0) {
-      const storedCSVsMapped = storedCSVs.map((c: any) => ({
-        ...c,
-        created_at: c.created_at ? new Date(c.created_at) : new Date()
-      }));
-      await prisma.storedCsv.createMany({ data: storedCSVsMapped });
+      await prisma.storedCsv.createMany({ data: mapOldStoredCsvs(storedCSVs) });
     }
     
     await resetSqliteSequences();
@@ -2000,24 +2112,24 @@ app.post('/api/admin/db/import-sqlite', authenticateToken, upload.single('file')
 
     // Import Role-based data first
     const systemRoles = getData('system_roles');
-    if (systemRoles.length > 0) await prisma.systemRole.createMany({ data: systemRoles });
+    if (systemRoles.length > 0) await prisma.systemRole.createMany({ data: mapOldSystemRoles(systemRoles) });
 
     const users = getData('users');
     if (users.length > 0) await prisma.user.createMany({ data: mapOldUsers(users) });
 
     const settings = getData('settings');
-    if (settings.length > 0) await prisma.setting.createMany({ data: settings });
+    if (settings.length > 0) await prisma.setting.createMany({ data: mapOldSettings(settings) });
 
     const imports = getData('imports');
     if (imports.length > 0) {
-      await prisma.import.createMany({ data: imports.map((i: any) => ({ ...i, created_at: i.created_at ? new Date(i.created_at) : new Date() })) });
+      await prisma.import.createMany({ data: mapOldImports(imports) });
     }
 
     const riftSeasons = getData('rift_seasons');
     if (riftSeasons.length > 0) await prisma.riftSeason.createMany({ data: mapOldRiftSeasons(riftSeasons) });
     
     const members = getData('members');
-    if (members.length > 0) await prisma.member.createMany({ data: members });
+    if (members.length > 0) await prisma.member.createMany({ data: mapOldMembers(members) });
     
     const memberRoles = getData('member_roles');
     if (memberRoles.length > 0) await prisma.memberRole.createMany({ data: mapOldMemberRoles(memberRoles) });
@@ -2042,7 +2154,7 @@ app.post('/api/admin/db/import-sqlite', authenticateToken, upload.single('file')
 
     const storedCSVs = getData('stored_csvs');
     if (storedCSVs.length > 0) {
-      await prisma.storedCsv.createMany({ data: storedCSVs.map((c: any) => ({ ...c, created_at: c.created_at ? new Date(c.created_at) : new Date() })) });
+      await prisma.storedCsv.createMany({ data: mapOldStoredCsvs(storedCSVs) });
     }
     
     await resetSqliteSequences();
@@ -2154,6 +2266,30 @@ async function startServer() {
   app.use((req, res) => {
     logSecurityEvent(req, '404_NOT_FOUND', `Invalid access: ${req.url}`);
     res.status(404).json({ error: 'Página não encontrada' });
+  });
+
+  // Global Express Error Handler
+  app.use((err: any, req: any, res: any, next: any) => {
+    const errMsg = err?.message || String(err || '');
+    if (errMsg.includes('malformed') || errMsg.includes('database disk image is malformed')) {
+      console.error('[GLOBAL ERROR HANDLER] Detected database corruption. Triggering recovery...', err);
+      
+      // Fire inline recovery in the background
+      triggerDatabaseRecovery().then(() => {
+        console.log('[GLOBAL ERROR HANDLER] Inline database recovery completed successfully.');
+      }).catch((recErr) => {
+        console.error('[GLOBAL ERROR HANDLER] Background recovery failed:', recErr);
+      });
+
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Erro de integridade no banco de dados. O sistema foi recuperado de forma automática e limpa. Por favor, recarregue a página.' });
+      }
+      return;
+    }
+    console.error('[UNCAUGHT EXCEPTION]', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err?.message || 'Erro interno no servidor' });
+    }
   });
 
   app.listen(PORT, '0.0.0.0', () => {

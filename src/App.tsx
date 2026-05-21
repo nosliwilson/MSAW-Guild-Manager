@@ -146,9 +146,16 @@ export default function App() {
       headers['Authorization'] = `Bearer ${savedToken}`;
     }
     fetch('/api/auth/me', { headers, credentials: 'include' })
-      .then(res => res.json())
+      .then(async res => {
+        if (!res.ok) throw new Error('Response not OK');
+        const contentType = res.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          return res.json();
+        }
+        throw new Error('Response not application/json');
+      })
       .then(data => {
-        if (data.user) {
+        if (data && data.user) {
           setAuth(data.user, savedToken);
         } else {
           setAuth(null);
@@ -183,8 +190,13 @@ export default function App() {
       throw new Error('Unauthorized');
     }
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || 'Erro na requisição');
+      const contentType = res.headers.get('content-type');
+      let errorMsg = 'Erro na requisição';
+      if (contentType && contentType.includes('application/json')) {
+        const data = await res.json().catch(() => ({}));
+        errorMsg = data.error || errorMsg;
+      }
+      throw new Error(errorMsg);
     }
     return res;
   };
