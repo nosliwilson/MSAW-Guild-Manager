@@ -318,6 +318,15 @@ const checkAndFixDatabase = async () => {
     // 1. Connectivity check
     console.log('[DB CHECK] Verifying database connectivity...');
     await prisma.$queryRaw`SELECT 1`;
+    
+    // Configure WAL mode and busy_timeout to prevent lock corruption under concurrent load
+    try {
+      await prisma.$executeRawUnsafe('PRAGMA journal_mode=WAL;');
+      await prisma.$executeRawUnsafe('PRAGMA busy_timeout=5000;');
+      console.log('[DB CHECK] SQLite WAL mode and busy_timeout configured successfully.');
+    } catch (pragmaErr) {
+      console.warn('[DB CHECK] Failed to configure SQLite PRAGMAs:', pragmaErr);
+    }
   } catch (err: any) {
     const errMsg = err.message || '';
     if (errMsg.includes('malformed') || errMsg.includes('database disk image is malformed')) {
