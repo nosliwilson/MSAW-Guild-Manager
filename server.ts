@@ -372,7 +372,7 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Usuário não encontrado' });
     }
     
-    if (user.is_blocked === 1 || user.is_blocked === true) {
+    if (Boolean(user.is_blocked)) {
       logSecurityEvent(req, 'LOGIN_BLOCKED', `Blocked user attempted login: ${username}`);
       return res.status(403).json({ error: 'Usuário bloqueado' });
     }
@@ -392,7 +392,7 @@ app.post('/api/auth/login', async (req, res) => {
       const permissions = systemRole ? JSON.parse(systemRole.permissions) : null;
 
       logSecurityEvent(req, 'LOGIN_SUCCESS', `User: ${username}`);
-      res.json({ user: { id: user.id, username: user.username, role: user.role, permissions } });
+      res.json({ user: { id: user.id, username: user.username, role: user.role, permissions }, token });
     } else {
       logSecurityEvent(req, 'LOGIN_FAILED', `Incorrect password for user: ${username}`);
       res.status(400).json({ error: 'Senha incorreta' });
@@ -415,7 +415,7 @@ app.get('/api/auth/me', authenticateToken, async (req: any, res) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
-    if (user.is_blocked === 1 || user.is_blocked === true) return res.status(403).json({ error: 'Usuário bloqueado' });
+    if (Boolean(user.is_blocked)) return res.status(403).json({ error: 'Usuário bloqueado' });
     
     const systemRole = await prisma.systemRole.findUnique({ where: { name: user.role } });
     const permissions = systemRole ? JSON.parse(systemRole.permissions) : null;

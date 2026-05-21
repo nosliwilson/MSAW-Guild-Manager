@@ -126,18 +126,30 @@ function ProtectedRoute({ children, user, setAuth }: { children: React.ReactNode
 export default function App() {
   const [user, setUserState] = useState<any>(JSON.parse(localStorage.getItem('user') || 'null'));
 
-  const setAuth = (newUser: any | null) => {
+  const setAuth = (newUser: any | null, token: string | null = null) => {
     setUserState(newUser);
-    if (newUser) localStorage.setItem('user', JSON.stringify(newUser));
-    else localStorage.removeItem('user');
+    if (newUser) {
+      localStorage.setItem('user', JSON.stringify(newUser));
+      if (token) {
+        localStorage.setItem('token', token);
+      }
+    } else {
+      localStorage.removeItem('user');
+      localStorage.removeItem('token');
+    }
   };
 
   useEffect(() => {
-    fetch('/api/auth/me', { credentials: 'include' })
+    const savedToken = localStorage.getItem('token');
+    const headers: Record<string, string> = {};
+    if (savedToken) {
+      headers['Authorization'] = `Bearer ${savedToken}`;
+    }
+    fetch('/api/auth/me', { headers, credentials: 'include' })
       .then(res => res.json())
       .then(data => {
         if (data.user) {
-          setAuth(data.user);
+          setAuth(data.user, savedToken);
         } else {
           setAuth(null);
         }
@@ -148,6 +160,12 @@ export default function App() {
   const fetchApi = async (url: string, options: RequestInit = {}) => {
     const headers = new Headers(options.headers);
     headers.set('X-Requested-With', 'XMLHttpRequest');
+    
+    const savedToken = localStorage.getItem('token');
+    if (savedToken) {
+      headers.set('Authorization', `Bearer ${savedToken}`);
+    }
+
     if (!(options.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json');
     } else {

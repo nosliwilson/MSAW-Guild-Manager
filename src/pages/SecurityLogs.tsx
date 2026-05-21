@@ -7,11 +7,11 @@ export default function SecurityLogs({ fetchApi }: { fetchApi: any }) {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
-  const [limit] = useState(50);
+  const [limit, setLimit] = useState(60); // default to a size supported by pageSizes in Pagination.tsx
 
   useEffect(() => {
     loadLogs();
-  }, [page]);
+  }, [page, limit]);
 
   const loadLogs = async () => {
     setLoading(true);
@@ -133,9 +133,11 @@ export default function SecurityLogs({ fetchApi }: { fetchApi: any }) {
       <div className="flex justify-center mt-6">
         <Pagination
           currentPage={page}
-          totalCount={total}
-          pageSize={limit}
+          totalPages={Math.ceil(total / limit) || 1}
           onPageChange={setPage}
+          itemsPerPage={limit}
+          onItemsPerPageChange={setLimit}
+          totalItems={total}
         />
       </div>
     </div>
