@@ -437,11 +437,12 @@ async function checkAndFixDatabase() {
     console.log('[DB CHECK] Verifying database connectivity...');
     await prisma.$queryRaw`SELECT 1`;
     
-    // Configure WAL mode and busy_timeout to prevent lock corruption under concurrent load
+    // Configure WAL mode, busy_timeout and synchronous=NORMAL to prevent lock corruption under concurrent load
     try {
-      await prisma.$executeRawUnsafe('PRAGMA journal_mode=WAL;');
-      await prisma.$executeRawUnsafe('PRAGMA busy_timeout=5000;');
-      console.log('[DB CHECK] SQLite WAL mode and busy_timeout configured successfully.');
+      await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');
+      await prisma.$queryRawUnsafe('PRAGMA busy_timeout=10000;');
+      await prisma.$queryRawUnsafe('PRAGMA synchronous=NORMAL;');
+      console.log('[DB CHECK] SQLite WAL mode (journal_mode=WAL, busy_timeout=10000, synchronous=NORMAL) configured successfully.');
     } catch (pragmaErr) {
       console.warn('[DB CHECK] Failed to configure SQLite PRAGMAs:', pragmaErr);
     }
