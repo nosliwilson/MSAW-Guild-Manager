@@ -5,7 +5,7 @@
 
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
 import React, { useState, useEffect } from 'react';
-import { Users, Shield, Activity, Swords, Trophy, CalendarX, LogOut, Menu, X, Settings, Gem, History, FileText, Database, UserCog, Loader2, Palette } from 'lucide-react';
+import { Users, Shield, Activity, Swords, Trophy, CalendarX, LogOut, Menu, X, Settings, Gem, History, FileText, Database, UserCog, Loader2, Palette, Sparkles } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -26,6 +26,7 @@ import ImportsHistory from './pages/ImportsHistory';
 import StoredCSVs from './pages/StoredCSVs';
 import SQLEditor from './pages/SQLEditor';
 import SettingsPage from './pages/Settings';
+import AIImporter from './pages/AIImporter';
 
 function Layout({ children, user, setAuth }: { children: React.ReactNode, user: any, setAuth: any }) {
   const navigate = useNavigate();
@@ -43,6 +44,7 @@ function Layout({ children, user, setAuth }: { children: React.ReactNode, user: 
     { name: 'Fenda', path: '/fenda', icon: Gem },
     { name: 'Torneios', path: '/tournaments', icon: Swords },
     { name: 'Faltas', path: '/absences', icon: CalendarX },
+    { name: 'Importador IA', path: '/ai-importer', icon: Sparkles },
     ...(user?.role === 'admin' ? [
       { name: 'Configurações', path: '/settings', icon: Settings }
     ] : []),
@@ -235,6 +237,7 @@ export default function App() {
         <Route path="/fenda" element={<ProtectedRoute user={user} setAuth={handleLogoutReq}><Fenda fetchApi={fetchApi} user={user} /></ProtectedRoute>} />
         <Route path="/tournaments" element={<ProtectedRoute user={user} setAuth={handleLogoutReq}><Tournaments fetchApi={fetchApi} user={user} /></ProtectedRoute>} />
         <Route path="/absences" element={<ProtectedRoute user={user} setAuth={handleLogoutReq}><Absences fetchApi={fetchApi} user={user} /></ProtectedRoute>} />
+        <Route path="/ai-importer" element={<ProtectedRoute user={user} setAuth={handleLogoutReq}><AIImporter fetchApi={fetchApi} /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute user={user} setAuth={handleLogoutReq}><SettingsPage fetchApi={fetchApi} user={user} /></ProtectedRoute>} />
       </Routes>
     </Router>

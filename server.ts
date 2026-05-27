@@ -14,6 +14,7 @@ import { execSync } from 'child_process';
 import { PrismaClient, Prisma } from '@prisma/client';
 import cookieParser from 'cookie-parser';
 import Database from 'better-sqlite3';
+import { GoogleGenAI, Type } from '@google/genai';
 
 const app = express();
 const PORT = 3000;
@@ -2301,6 +2302,267 @@ async function scanAndRegisterCsvs() {
     console.error('[AUTO-SCAN] Error:', e);
   }
 }
+
+// AI Configs & Gemini Integration
+app.get('/api/admin/config/gemini', authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  try {
+    const stored = await prisma.setting.findUnique({ where: { key: 'gemini_api_key' } });
+    res.json({
+      isSet: !!stored?.value,
+      hasEnvKey: !!process.env.GEMINI_API_KEY
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/config/gemini', authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  const { apiKey } = req.body;
+  if (apiKey === undefined) {
+    return res.status(400).json({ error: 'Chave de API não informada' });
+  }
+  try {
+    await prisma.setting.upsert({
+      where: { key: 'gemini_api_key' },
+      update: { value: apiKey },
+      create: { key: 'gemini_api_key', value: apiKey }
+    });
+    res.json({ success: true, message: 'Chave de API configurada com sucesso' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// AI custom rules (prompts configuration) for events
+const DEFAULT_AI_RULES: Record<string, string> = {
+  power: 'O nome do jogador (Nick) e o Poder de combate geral atual. Se for escrito em formato reduzido como 120M ou 120.5M, converta para número inteiro cheio.',
+  guerra_total: 'O nome do jogador (Nick) e o Poder da equipe específico de Guerra Total. Use as mesmas regras de numerais.',
+  torneio_celeste: 'O nome do jogador (Nick), a Aliança (Guild), a Pontuação acumulada (Score) e o Campo de Batalha correspondente (Field, ex: Campo 1, Campo 2, etc.).',
+  pico_gloria: 'O nome do jogador (Nick), a Rodada disputada (Round), a Pontuação acumulada (Score) e o Time do jogador (Team).',
+  fenda: 'O nome do jogador (Nick) e a quantidade acumulada de Cristais de Fenda (Crystals) mostrados no painel.',
+  members: 'Apenas os nomes dos jogadores (Nick) presentes na lista de membros da guilda, para vinculação/cadastro de entrada.'
+};
+
+app.get('/api/admin/config/ai-rules', authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  try {
+    const rules: Record<string, string> = {};
+    for (const key of Object.keys(DEFAULT_AI_RULES)) {
+      const stored = await prisma.setting.findUnique({ where: { key: `ai_rule_${key}` } });
+      rules[key] = stored?.value || DEFAULT_AI_RULES[key];
+    }
+    res.json(rules);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/config/ai-rules', authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  const { rules } = req.body;
+  if (!rules || typeof rules !== 'object') {
+    return res.status(400).json({ error: 'Regras inválidas' });
+  }
+  try {
+    for (const [key, value] of Object.entries(rules)) {
+      if (DEFAULT_AI_RULES[key] !== undefined) {
+        await prisma.setting.upsert({
+          where: { key: `ai_rule_${key}` },
+          update: { value: String(value) },
+          create: { key: `ai_rule_${key}`, value: String(value) }
+        });
+      }
+    }
+    res.json({ success: true, message: 'Regras de importação IA salvas com sucesso!' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Endpoint to process screenshots (Shared: available for any authenticated user)
+app.post('/api/admin/ai/process-screenshots', authenticateToken, async (req: any, res) => {
+  const { type, date, images } = req.body;
+  if (!type || !date || !images || !Array.isArray(images) || images.length === 0) {
+    return res.status(400).json({ error: 'Parâmetros inválidos. É necessário informar tipo, data e pelo menos uma imagem.' });
+  }
+
+  try {
+    // Determine API Key to use (Global Gemni Key)
+    const customKeyRow = await prisma.setting.findUnique({ where: { key: 'gemini_api_key' } });
+    const apiKey = customKeyRow?.value || process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(400).json({ 
+        error: 'Chave de API do Gemini não configurada globalmente pelo Administrador. Por favor, solicite a ele que adicione a chave nas Configurações.' 
+      });
+    }
+
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
+
+    // Translate type for Gemini context
+    const typeLabelMap: Record<string, string> = {
+      'power': 'Poder',
+      'guerra_total': 'Guerra Total',
+      'torneio_celeste': 'Torneio Celeste',
+      'pico_gloria': 'Pico de Glória',
+      'fenda': 'Fenda',
+      'members': 'Membros'
+    };
+    const label = typeLabelMap[type] || type;
+
+    // Retrieve active custom system rules for this event
+    const activeRuleRow = await prisma.setting.findUnique({ where: { key: `ai_rule_${type}` } });
+    const activeRuleText = activeRuleRow?.value || DEFAULT_AI_RULES[type] || '';
+
+    // Prepare content parts: system instructions, custom instructions, and images
+    const model = 'gemini-3.5-flash';
+    const parts: any[] = [];
+
+    // Add image parts
+    for (const img of images) {
+      if (!img.data || !img.mimeType) continue;
+      // strip data:image/xxx;base64, prefix if present
+      const base64Data = img.data.includes(';base64,') ? img.data.split(';base64,')[1] : img.data;
+      parts.push({
+        inlineData: {
+          mimeType: img.mimeType,
+          data: base64Data
+        }
+      });
+    }
+
+    if (parts.length === 0) {
+      return res.status(400).json({ error: 'Nenhuma imagem válida fornecida.' });
+    }
+
+    // Add prompt as the text part with custom active rule
+    const promptText = `Você é um robô de transcrição OCR de alta fidelidade para prints de telas de jogos mobile.
+Sua missão é ler as imagens fornecidas, mapear os dados da tabela e retornar um ARRAY com todos os jogadores identificados.
+
+**DADOS IMPORTANTES**:
+- Tipo de Importação Desejada: ${label} (${type})
+- Data para os Registros: ${date}
+
+**REGRAS SENSORIAIS DE OCR CONFIGURADAS**:
+${activeRuleText}
+
+**REGRAS GERAIS DE SUPORTE**:
+1. O nome do jogador ('Nick') é obrigatório. Ignore caracteres não-ASCII se forem óbvios ruídos de tela, mas mantenha o nick original do jogador caso seja decorado.
+2. Formatos numéricos de poder ou pontos: se o poder ou score estiver escrito como "120M" ou "120.5M", converta para número inteiro cheio (ex: 120000000 ou 120500000). Se for apenas "120.000", converta para 120000.
+3. Se o tipo for "torneio_celeste":
+   - Extraia 'Guild' (Aliança/Guilda do jogador, deixe em branco ou coloque a que estiver indicada), 'Score' (Pontuação, número inteiro) e 'Field' (Campo correspondente, ex: "Campo 1", "Campo 2" etc.)
+4. Se o tipo for "pico_gloria":
+   - Extraia 'Round' (Rodada, número inteiro), 'Score' (Pontuação, número inteiro) e 'Team' (Time, ex: "Azul", "Vermelho" ou "Livre").
+5. Se o tipo for "fenda":
+   - Extraia 'Crystals' (Cristais de fenda, número inteiro).
+6. Se o tipo for "power" ou "guerra_total":
+   - Extraia 'Power' (Poder do jogador, número inteiro).
+7. A propriedade 'Date' para todos os itens retornados DEVE ser exatamente "${date}".
+
+Retorne os dados estritamente seguindo o esquema JSON de Array de Objetos especificado.`;
+
+    parts.push({ text: promptText });
+
+    const response = await ai.models.generateContent({
+      model,
+      contents: { parts },
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              Nick: { type: Type.STRING, description: "O nome/nick exato do jogador conforme a imagem" },
+              Power: { type: Type.INTEGER, description: "Poder de combate. Usar somente para o tipo 'power' ou 'guerra_total'" },
+              Guild: { type: Type.STRING, description: "Nome da Aliança/Guilda. Usar somente para o tipo 'torneio_celeste'" },
+              Score: { type: Type.INTEGER, description: "Pontuação conseguida. Usar somente para 'torneio_celeste' ou 'pico_gloria'" },
+              Field: { type: Type.STRING, description: "Campo/Field de atuação. Usar somente para 'torneio_celeste'" },
+              Round: { type: Type.INTEGER, description: "Rodada da partida. Usar somente para 'pico_gloria'" },
+              Team: { type: Type.STRING, description: "Time/Grupo. Usar somente para 'pico_gloria'" },
+              Crystals: { type: Type.INTEGER, description: "Quantidade de cristais. Usar somente para 'fenda'" },
+              Date: { type: Type.STRING, description: "Data do registro no formato AAAA-MM-DD. Deve ser exatamente a informada." }
+            },
+            required: ["Nick", "Date"]
+          }
+        },
+        systemInstruction: "Aja como um transcritor OCR puro de altíssimo rigor que extrai dados de tabelas e listas perfeitamente sem inventar ou omitir nada.",
+        temperature: 0.1
+      }
+    });
+
+    const outputText = response.text || '[]';
+    const parsedData = JSON.parse(outputText.trim());
+
+    res.json({ success: true, data: parsedData });
+  } catch (err: any) {
+    console.error('[AI PRINT PROCESS ERROR]', err);
+    res.status(500).json({ error: 'Erro ao processar as imagens com Inteligência Artificial: ' + err.message });
+  }
+});
+
+// Endpoint to save AI generated data as a CSV (Shared: available for any authenticated user)
+app.post('/api/admin/ai/save-csv', authenticateToken, async (req: any, res) => {
+  const { type, date, data } = req.body;
+  if (!type || !date || !data || !Array.isArray(data)) {
+    return res.status(400).json({ error: 'Parâmetros inválidos. É necessário fornecer tipo, data e a lista de registros.' });
+  }
+
+  try {
+    // Generate CSV string
+    let headers: string[] = ['Nick'];
+    if (type === 'power' || type === 'guerra_total') {
+      headers.push('Power');
+    } else if (type === 'torneio_celeste') {
+      headers.push('Guild', 'Score', 'Field');
+    } else if (type === 'pico_gloria') {
+      headers.push('Round', 'Score', 'Team');
+    } else if (type === 'fenda') {
+      headers.push('Crystals');
+    }
+    headers.push('Date');
+
+    const csvLines = [headers.join(',')];
+    for (const item of data) {
+      const row = headers.map(h => {
+        const val = item[h];
+        if (val === undefined || val === null) return '';
+        const strVal = val.toString().replace(/"/g, '""');
+        return strVal.includes(',') || strVal.includes('\n') || strVal.includes('"') ? `"${strVal}"` : strVal;
+      });
+      csvLines.push(row.join(','));
+    }
+    const csvContent = csvLines.join('\n');
+
+    // Save as storedCsv
+    const originalName = `AI_Import_${type}_${date}.csv`;
+    const newFilename = `${Date.now()}-${originalName}`;
+    const newPath = path.join(CSV_STORAGE_DIR, newFilename);
+
+    fs.writeFileSync(newPath, csvContent, 'utf-8');
+
+    const storedRecord = await prisma.storedCsv.create({
+      data: {
+        filename: newFilename,
+        original_name: originalName,
+        type
+      }
+    });
+
+    res.json({ success: true, message: 'CSV gerado e salvo com sucesso!', record: storedRecord });
+  } catch (err: any) {
+    console.error('[AI SAVE CSV ERROR]', err);
+    res.status(500).json({ error: 'Erro ao salvar o arquivo CSV gerado: ' + err.message });
+  }
+});
 
 app.post('/api/admin/scan-csv-folder', authenticateToken, async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });

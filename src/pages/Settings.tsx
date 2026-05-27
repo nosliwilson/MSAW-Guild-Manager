@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Database, Download, Upload, ShieldAlert, Save, Trash2, RefreshCw, History, UserCog, FileText, Settings, Shield, Palette } from 'lucide-react';
+import { Database, Download, Upload, ShieldAlert, Save, Trash2, RefreshCw, History, UserCog, FileText, Settings, Shield, Palette, Sparkles } from 'lucide-react';
 
 import ImportsHistory from './ImportsHistory';
 import UsersAdmin from './UsersAdmin';
@@ -8,6 +8,7 @@ import SQLEditor from './SQLEditor';
 import StoredCSVs from './StoredCSVs';
 import RolesAdmin from './RolesAdmin';
 import SecurityLogs from './SecurityLogs';
+import AISettings from '../components/AISettings';
 
 export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: any }) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -325,6 +326,16 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
           {activeTab === 'csvs' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400" />}
         </button>
         <button
+          onClick={() => handleTabChange('ai')}
+          className={`px-4 py-3 text-sm font-medium transition-colors relative flex items-center gap-2 ${
+            activeTab === 'ai' ? 'text-emerald-400' : 'text-zinc-400 hover:text-white'
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-emerald-400" />
+          Importador IA
+          {activeTab === 'ai' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400" />}
+        </button>
+        <button
           onClick={() => handleTabChange('sql')}
           className={`px-4 py-3 text-sm font-medium transition-colors relative flex items-center gap-2 ${
             activeTab === 'sql' ? 'text-emerald-400' : 'text-zinc-400 hover:text-white'
@@ -353,6 +364,7 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
         {activeTab === 'csvs' && <StoredCSVs fetchApi={fetchApi} user={user} />}
         {activeTab === 'sql' && <SQLEditor fetchApi={fetchApi} />}
         {activeTab === 'security' && <SecurityLogs fetchApi={fetchApi} />}
+        {activeTab === 'ai' && <AISettings fetchApi={fetchApi} />}
         
         {activeTab === 'appearance' && (
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-6">
