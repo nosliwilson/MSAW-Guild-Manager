@@ -1246,6 +1246,7 @@ app.post('/api/admin/db/import', authenticateToken, upload.single('file'), async
     }
     
     await resetSqliteSequences();
+    await checkAndFixDatabase();
     
     fs.unlinkSync(req.file.path);
     res.json({ success: true, message: 'Dados importados com sucesso' });
@@ -2241,6 +2242,7 @@ app.post('/api/admin/db/import-sqlite', authenticateToken, upload.single('file')
     }
     
     await resetSqliteSequences();
+    await checkAndFixDatabase();
     
     fs.unlinkSync(req.file.path);
     res.json({ success: true, message: 'Dados migrados do SQLite com sucesso' });
