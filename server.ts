@@ -1079,6 +1079,48 @@ app.get('/api/admin/db/export', authenticateToken, async (req: any, res) => {
   }
 });
 
+app.post('/api/admin/upload-favicon', authenticateToken, upload.single('favicon'), async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
+  if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+
+  try {
+    const publicDir = path.join(process.cwd(), 'public');
+    const distDir = path.join(process.cwd(), 'dist');
+
+    // Create directories if they do not exist
+    if (!fs.existsSync(publicDir)) {
+      fs.mkdirSync(publicDir, { recursive: true });
+    }
+
+    // Save as public/favicon.ico
+    const publicFaviconPath = path.join(publicDir, 'favicon.ico');
+    fs.copyFileSync(req.file.path, publicFaviconPath);
+
+    // Also write to dist if it exists, so that the change is hot and live in production!
+    if (fs.existsSync(distDir)) {
+      const distFaviconPath = path.join(distDir, 'favicon.ico');
+      fs.copyFileSync(req.file.path, distFaviconPath);
+    }
+
+    // Clean up temporary upload file
+    try {
+      fs.unlinkSync(req.file.path);
+    } catch (err) {
+      console.warn('[FAVICON] Error deleting temporary file:', err);
+    }
+
+    res.json({ success: true, message: 'Favicon atualizado com sucesso!' });
+  } catch (err: any) {
+    console.error('[FAVICON UPLOAD ERROR]', err);
+    try {
+      if (req.file && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+    } catch (_) {}
+    res.status(500).json({ error: 'Erro ao salvar favicon: ' + err.message });
+  }
+});
+
 app.post('/api/admin/db/import', authenticateToken, upload.single('file'), async (req: any, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso negado' });
   if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });

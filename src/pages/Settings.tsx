@@ -12,6 +12,73 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
   const [activeTab, setActiveTab] = useState('database');
   const [backups, setBackups] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  
+  const [faviconUrl, setFaviconUrl] = useState(`/favicon.ico?t=${Date.now()}`);
+  const [faviconUploading, setFaviconUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+
+  const handleFaviconUpload = async (file: File) => {
+    if (!file) return;
+    setFaviconUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('favicon', file);
+
+      const res = await fetchApi('/api/admin/upload-favicon', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Falha ao atualizar o favicon.');
+      }
+
+      alert('Favicon atualizado com sucesso! Limpando o cache do seu navegador ou recarregando a página, as alterações serão visíveis.');
+      
+      const newUrl = `/favicon.ico?t=${Date.now()}`;
+      setFaviconUrl(newUrl);
+      
+      // Update browser icon dynamically in the current view in real-time
+      const link: HTMLLinkElement | null = document.querySelector("link[rel*='icon']");
+      if (link) {
+        link.href = newUrl;
+      } else {
+        const newLink = document.createElement('link');
+        newLink.rel = 'icon';
+        newLink.href = newUrl;
+        document.head.appendChild(newLink);
+      }
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setFaviconUploading(false);
+    }
+  };
+
+  const handleFaviconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFaviconUpload(file);
+  };
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleFaviconUpload(e.dataTransfer.files[0]);
+    }
+  };
 
   useEffect(() => {
     if (user?.role === 'admin' && activeTab === 'database') {
@@ -264,7 +331,8 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
         {activeTab === 'security' && <SecurityLogs fetchApi={fetchApi} />}
         
         {activeTab === 'database' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Export / Import JSON */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-6">
               <div className="flex items-center gap-2 text-white font-medium border-b border-zinc-800 pb-4">
@@ -394,6 +462,82 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
               </div>
             </div>
           </div>
+
+          {/* Identidade Visual e Favicon */}
+          <div className="mt-6 bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-6">
+            <div className="flex items-center gap-2 text-white font-medium border-b border-zinc-800 pb-4">
+              <Upload className="w-5 h-5 text-emerald-400" />
+              Identidade Visual & Ícones (Favicon)
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
+              <div className="space-y-2 lg:col-span-1">
+                <h3 className="text-sm font-medium text-white">Visualização do Favicon Atual</h3>
+                <p className="text-xs text-zinc-400">
+                  O favicon é o pequeno ícone que aparece na aba do seu navegador antes do título da página.
+                </p>
+                <div className="flex items-center gap-4 p-4 bg-zinc-950 rounded-lg border border-zinc-800 w-fit">
+                  <div className="w-16 h-16 bg-zinc-900 rounded-lg border border-zinc-800 flex items-center justify-center p-3">
+                    <img 
+                      key={faviconUrl} 
+                      src={faviconUrl} 
+                      alt="Favicon Atual" 
+                      className="w-10 h-10 object-contain"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="%2334d399" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" fill="%2334d399" r="2"/></svg>';
+                      }}
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-xs text-zinc-500 block">Tipo: .ico / .png / .svg</span>
+                    <span className="text-xs font-mono text-zinc-400 font-sans break-all">/favicon.ico</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="lg:col-span-2 space-y-3">
+                <h3 className="text-sm font-medium text-white">Upload de Novo Ícone</h3>
+                <p className="text-xs text-zinc-400">
+                  Faça o envio de uma imagem para ser usada como o favicon do aplicativo. O sistema salvará de forma limpa na pasta correta.
+                </p>
+
+                <div 
+                  onDragEnter={handleDrag}
+                  onDragOver={handleDrag}
+                  onDragLeave={handleDrag}
+                  onDrop={handleDrop}
+                  className={`relative border-2 border-dashed rounded-xl p-8 transition-all flex flex-col items-center justify-center text-center cursor-pointer ${
+                    faviconUploading ? 'opacity-50 pointer-events-none' : ''
+                  } ${
+                    dragActive 
+                      ? 'border-emerald-400 bg-emerald-500/5' 
+                      : 'border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/20'
+                  }`}
+                >
+                  <input
+                    type="file"
+                    id="favicon-file-input"
+                    accept=".ico,.png,.jpg,.jpeg,.svg"
+                    className="hidden"
+                    onChange={handleFaviconChange}
+                    disabled={faviconUploading}
+                  />
+                  <label htmlFor="favicon-file-input" className="cursor-pointer flex flex-col items-center">
+                    <Upload className={`w-10 h-10 mb-3 text-zinc-500 ${faviconUploading ? 'animate-pulse text-emerald-400' : ''}`} />
+                    <p className="text-sm text-zinc-300 font-medium font-sans">
+                      {faviconUploading ? 'Enviando e configurando...' : 'Arraste uma imagem ou clique para selecionar'}
+                    </p>
+                    <p className="text-xs text-zinc-500 mt-1 font-sans">
+                      Formatos recomendados: ICO, PNG (quadrado, ex: 32x32 ou 64x64) ou SVG.
+                    </p>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+          </>
         )}
       </div>
     </div>
