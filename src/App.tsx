@@ -5,7 +5,7 @@
 
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
 import React, { useState, useEffect } from 'react';
-import { Users, Shield, Activity, Swords, Trophy, CalendarX, LogOut, Menu, X, Settings, Gem, History, FileText, Database, UserCog, Loader2 } from 'lucide-react';
+import { Users, Shield, Activity, Swords, Trophy, CalendarX, LogOut, Menu, X, Settings, Gem, History, FileText, Database, UserCog, Loader2, Palette } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -44,7 +44,8 @@ function Layout({ children, user, setAuth }: { children: React.ReactNode, user: 
     { name: 'Torneios', path: '/tournaments', icon: Swords },
     { name: 'Faltas', path: '/absences', icon: CalendarX },
     ...(user?.role === 'admin' ? [
-      { name: 'Configurações', path: '/settings', icon: Settings }
+      { name: 'Configurações', path: '/settings', icon: Settings },
+      { name: 'Aparência & Favicon', path: '/settings?tab=appearance', icon: Palette }
     ] : []),
   ];
 

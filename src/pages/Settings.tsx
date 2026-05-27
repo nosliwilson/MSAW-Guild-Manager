@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Database, Download, Upload, ShieldAlert, Save, Trash2, RefreshCw, History, UserCog, FileText, Settings, Shield, Palette } from 'lucide-react';
 
 import ImportsHistory from './ImportsHistory';
@@ -9,9 +10,22 @@ import RolesAdmin from './RolesAdmin';
 import SecurityLogs from './SecurityLogs';
 
 export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: any }) {
-  const [activeTab, setActiveTab] = useState('database');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'database');
   const [backups, setBackups] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab && tab !== activeTab) {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
+
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    setSearchParams({ tab });
+  };
   
   const [faviconUrl, setFaviconUrl] = useState(`/favicon.ico?t=${Date.now()}`);
   const [faviconUploading, setFaviconUploading] = useState(false);
@@ -251,7 +265,7 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
 
       <div className="flex flex-wrap gap-2 border-b border-zinc-800 pb-px">
         <button
-          onClick={() => setActiveTab('database')}
+          onClick={() => handleTabChange('database')}
           className={`px-4 py-3 text-sm font-medium transition-colors relative flex items-center gap-2 ${
             activeTab === 'database' ? 'text-emerald-400' : 'text-zinc-400 hover:text-white'
           }`}
@@ -261,7 +275,7 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
           {activeTab === 'database' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400" />}
         </button>
         <button
-          onClick={() => setActiveTab('appearance')}
+          onClick={() => handleTabChange('appearance')}
           className={`px-4 py-3 text-sm font-medium transition-colors relative flex items-center gap-2 ${
             activeTab === 'appearance' ? 'text-emerald-400' : 'text-zinc-400 hover:text-white'
           }`}
@@ -271,7 +285,7 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
           {activeTab === 'appearance' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400" />}
         </button>
         <button
-          onClick={() => setActiveTab('users')}
+          onClick={() => handleTabChange('users')}
           className={`px-4 py-3 text-sm font-medium transition-colors relative flex items-center gap-2 ${
             activeTab === 'users' ? 'text-emerald-400' : 'text-zinc-400 hover:text-white'
           }`}
@@ -281,7 +295,7 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
           {activeTab === 'users' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400" />}
         </button>
         <button
-          onClick={() => setActiveTab('roles')}
+          onClick={() => handleTabChange('roles')}
           className={`px-4 py-3 text-sm font-medium transition-colors relative flex items-center gap-2 ${
             activeTab === 'roles' ? 'text-emerald-400' : 'text-zinc-400 hover:text-white'
           }`}
@@ -291,7 +305,7 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
           {activeTab === 'roles' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400" />}
         </button>
         <button
-          onClick={() => setActiveTab('history')}
+          onClick={() => handleTabChange('history')}
           className={`px-4 py-3 text-sm font-medium transition-colors relative flex items-center gap-2 ${
             activeTab === 'history' ? 'text-emerald-400' : 'text-zinc-400 hover:text-white'
           }`}
@@ -301,7 +315,7 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
           {activeTab === 'history' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400" />}
         </button>
         <button
-          onClick={() => setActiveTab('csvs')}
+          onClick={() => handleTabChange('csvs')}
           className={`px-4 py-3 text-sm font-medium transition-colors relative flex items-center gap-2 ${
             activeTab === 'csvs' ? 'text-emerald-400' : 'text-zinc-400 hover:text-white'
           }`}
@@ -311,7 +325,7 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
           {activeTab === 'csvs' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400" />}
         </button>
         <button
-          onClick={() => setActiveTab('sql')}
+          onClick={() => handleTabChange('sql')}
           className={`px-4 py-3 text-sm font-medium transition-colors relative flex items-center gap-2 ${
             activeTab === 'sql' ? 'text-emerald-400' : 'text-zinc-400 hover:text-white'
           }`}
@@ -321,7 +335,7 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
           {activeTab === 'sql' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400" />}
         </button>
         <button
-          onClick={() => setActiveTab('security')}
+          onClick={() => handleTabChange('security')}
           className={`px-4 py-3 text-sm font-medium transition-colors relative flex items-center gap-2 ${
             activeTab === 'security' ? 'text-emerald-400' : 'text-zinc-400 hover:text-white'
           }`}

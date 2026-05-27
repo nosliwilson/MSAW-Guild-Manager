@@ -385,8 +385,25 @@ async function resetSqliteSequences() {
  */
 function logSecurityEvent(req: any, type: string, details: string) {
   // Robust IP detection for proxies
+  const cfConnectingIp = req.headers['cf-connecting-ip'];
+  const xRealIp = req.headers['x-real-ip'];
   const forwarded = req.headers['x-forwarded-for'];
-  const ip = typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : req.ip || '0.0.0.0';
+  
+  let ip = '0.0.0.0';
+  if (typeof cfConnectingIp === 'string' && cfConnectingIp) {
+    ip = cfConnectingIp.trim();
+  } else if (typeof xRealIp === 'string' && xRealIp) {
+    ip = xRealIp.trim();
+  } else if (typeof forwarded === 'string' && forwarded) {
+    ip = forwarded.split(',')[0].trim();
+  } else {
+    ip = req.ip || req.socket?.remoteAddress || '127.0.0.1';
+  }
+  
+  // Clean up IPv6 mapped IPv4 addresses (like ::ffff:127.0.0.1)
+  if (ip.startsWith('::ffff:')) {
+    ip = ip.substring(7);
+  }
   
   const timestamp = new Date().toISOString();
   const logMessage = `[SECURITY_EVENT] [${timestamp}] [IP: ${ip}] [TYPE: ${type}] [METHOD: ${req.method}] [URL: ${req.originalUrl || req.url}] [DETAILS: ${details}]`;
