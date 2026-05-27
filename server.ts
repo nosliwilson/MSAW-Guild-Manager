@@ -140,7 +140,7 @@ function handlePrismaError(e: any, res: any) {
   res.status(500).json({ error: e.message || 'Erro interno no servidor' });
 }
 
-app.set('trust proxy', 1);
+app.set('trust proxy', true);
 app.disable('x-powered-by');
 
 app.use((req, res, next) => {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Database, Download, Upload, ShieldAlert, Save, Trash2, RefreshCw, History, UserCog, FileText, Settings, Shield } from 'lucide-react';
+import { Database, Download, Upload, ShieldAlert, Save, Trash2, RefreshCw, History, UserCog, FileText, Settings, Shield, Palette } from 'lucide-react';
 
 import ImportsHistory from './ImportsHistory';
 import UsersAdmin from './UsersAdmin';
@@ -261,6 +261,16 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
           {activeTab === 'database' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400" />}
         </button>
         <button
+          onClick={() => setActiveTab('appearance')}
+          className={`px-4 py-3 text-sm font-medium transition-colors relative flex items-center gap-2 ${
+            activeTab === 'appearance' ? 'text-emerald-400' : 'text-zinc-400 hover:text-white'
+          }`}
+        >
+          <Palette className="w-4 h-4" />
+          Aparência e Favicon
+          {activeTab === 'appearance' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400" />}
+        </button>
+        <button
           onClick={() => setActiveTab('users')}
           className={`px-4 py-3 text-sm font-medium transition-colors relative flex items-center gap-2 ${
             activeTab === 'users' ? 'text-emerald-400' : 'text-zinc-400 hover:text-white'
@@ -329,6 +339,82 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
         {activeTab === 'csvs' && <StoredCSVs fetchApi={fetchApi} user={user} />}
         {activeTab === 'sql' && <SQLEditor fetchApi={fetchApi} />}
         {activeTab === 'security' && <SecurityLogs fetchApi={fetchApi} />}
+        
+        {activeTab === 'appearance' && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-6">
+            <div className="flex items-center gap-2 text-white font-medium border-b border-zinc-800 pb-4">
+              <Palette className="w-5 h-5 text-emerald-400" />
+              Identidade Visual & Ícone (Favicon)
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
+              <div className="space-y-2 lg:col-span-1">
+                <h3 className="text-sm font-medium text-white">Visualização do Favicon Atual</h3>
+                <p className="text-xs text-zinc-400">
+                  O favicon é o pequeno ícone que aparece na aba do seu navegador antes do título da página.
+                </p>
+                <div className="flex items-center gap-4 p-4 bg-zinc-950 rounded-lg border border-zinc-800 w-fit">
+                  <div className="w-16 h-16 bg-zinc-900 rounded-lg border border-zinc-800 flex items-center justify-center p-3">
+                    <img 
+                      key={faviconUrl} 
+                      src={faviconUrl} 
+                      alt="Favicon Atual" 
+                      className="w-10 h-10 object-contain"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="%2334d399" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" fill="%2334d399" r="2"/></svg>';
+                      }}
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-xs text-zinc-500 block">Tipo: .ico / .png / .svg</span>
+                    <span className="text-xs font-mono text-zinc-400 font-sans break-all">/favicon.ico</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="lg:col-span-2 space-y-3">
+                <h3 className="text-sm font-medium text-white">Upload de Novo Ícone</h3>
+                <p className="text-xs text-zinc-400">
+                  Faça o envio de uma imagem para ser usada como o favicon do aplicativo. O sistema salvará de forma limpa na pasta correta.
+                </p>
+
+                <div 
+                  onDragEnter={handleDrag}
+                  onDragOver={handleDrag}
+                  onDragLeave={handleDrag}
+                  onDrop={handleDrop}
+                  className={`relative border-2 border-dashed rounded-xl p-8 transition-all flex flex-col items-center justify-center text-center cursor-pointer ${
+                    faviconUploading ? 'opacity-50 pointer-events-none' : ''
+                  } ${
+                    dragActive 
+                      ? 'border-emerald-400 bg-emerald-500/5' 
+                      : 'border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/20'
+                  }`}
+                >
+                  <input
+                    type="file"
+                    id="favicon-file-input"
+                    accept=".ico,.png,.jpg,.jpeg,.svg"
+                    className="hidden"
+                    onChange={handleFaviconChange}
+                    disabled={faviconUploading}
+                  />
+                  <label htmlFor="favicon-file-input" className="cursor-pointer flex flex-col items-center">
+                    <Upload className={`w-10 h-10 mb-3 text-zinc-500 ${faviconUploading ? 'animate-pulse text-emerald-400' : ''}`} />
+                    <p className="text-sm text-zinc-300 font-medium font-sans">
+                      {faviconUploading ? 'Enviando e configurando...' : 'Arraste uma imagem ou clique para selecionar'}
+                    </p>
+                    <p className="text-xs text-zinc-500 mt-1 font-sans">
+                      Formatos recomendados: ICO, PNG (quadrado, ex: 32x32 ou 64x64) ou SVG.
+                    </p>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         
         {activeTab === 'database' && (
           <>
@@ -459,81 +545,6 @@ export default function SettingsPage({ fetchApi, user }: { fetchApi: any, user: 
                     </div>
                   ))
                 )}
-              </div>
-            </div>
-          </div>
-
-          {/* Identidade Visual e Favicon */}
-          <div className="mt-6 bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-6">
-            <div className="flex items-center gap-2 text-white font-medium border-b border-zinc-800 pb-4">
-              <Upload className="w-5 h-5 text-emerald-400" />
-              Identidade Visual & Ícones (Favicon)
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
-              <div className="space-y-2 lg:col-span-1">
-                <h3 className="text-sm font-medium text-white">Visualização do Favicon Atual</h3>
-                <p className="text-xs text-zinc-400">
-                  O favicon é o pequeno ícone que aparece na aba do seu navegador antes do título da página.
-                </p>
-                <div className="flex items-center gap-4 p-4 bg-zinc-950 rounded-lg border border-zinc-800 w-fit">
-                  <div className="w-16 h-16 bg-zinc-900 rounded-lg border border-zinc-800 flex items-center justify-center p-3">
-                    <img 
-                      key={faviconUrl} 
-                      src={faviconUrl} 
-                      alt="Favicon Atual" 
-                      className="w-10 h-10 object-contain"
-                      onError={(e) => {
-                        e.currentTarget.onerror = null;
-                        e.currentTarget.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="%2334d399" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" fill="%2334d399" r="2"/></svg>';
-                      }}
-                      referrerPolicy="no-referrer"
-                    />
-                  </div>
-                  <div>
-                    <span className="text-xs text-zinc-500 block">Tipo: .ico / .png / .svg</span>
-                    <span className="text-xs font-mono text-zinc-400 font-sans break-all">/favicon.ico</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="lg:col-span-2 space-y-3">
-                <h3 className="text-sm font-medium text-white">Upload de Novo Ícone</h3>
-                <p className="text-xs text-zinc-400">
-                  Faça o envio de uma imagem para ser usada como o favicon do aplicativo. O sistema salvará de forma limpa na pasta correta.
-                </p>
-
-                <div 
-                  onDragEnter={handleDrag}
-                  onDragOver={handleDrag}
-                  onDragLeave={handleDrag}
-                  onDrop={handleDrop}
-                  className={`relative border-2 border-dashed rounded-xl p-8 transition-all flex flex-col items-center justify-center text-center cursor-pointer ${
-                    faviconUploading ? 'opacity-50 pointer-events-none' : ''
-                  } ${
-                    dragActive 
-                      ? 'border-emerald-400 bg-emerald-500/5' 
-                      : 'border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/20'
-                  }`}
-                >
-                  <input
-                    type="file"
-                    id="favicon-file-input"
-                    accept=".ico,.png,.jpg,.jpeg,.svg"
-                    className="hidden"
-                    onChange={handleFaviconChange}
-                    disabled={faviconUploading}
-                  />
-                  <label htmlFor="favicon-file-input" className="cursor-pointer flex flex-col items-center">
-                    <Upload className={`w-10 h-10 mb-3 text-zinc-500 ${faviconUploading ? 'animate-pulse text-emerald-400' : ''}`} />
-                    <p className="text-sm text-zinc-300 font-medium font-sans">
-                      {faviconUploading ? 'Enviando e configurando...' : 'Arraste uma imagem ou clique para selecionar'}
-                    </p>
-                    <p className="text-xs text-zinc-500 mt-1 font-sans">
-                      Formatos recomendados: ICO, PNG (quadrado, ex: 32x32 ou 64x64) ou SVG.
-                    </p>
-                  </label>
-                </div>
               </div>
             </div>
           </div>
