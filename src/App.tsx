@@ -44,8 +44,7 @@ function Layout({ children, user, setAuth }: { children: React.ReactNode, user: 
     { name: 'Torneios', path: '/tournaments', icon: Swords },
     { name: 'Faltas', path: '/absences', icon: CalendarX },
     ...(user?.role === 'admin' ? [
-      { name: 'Configurações', path: '/settings', icon: Settings },
-      { name: 'Aparência & Favicon', path: '/settings?tab=appearance', icon: Palette }
+      { name: 'Configurações', path: '/settings', icon: Settings }
     ] : []),
   ];
 
