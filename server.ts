@@ -456,12 +456,32 @@ async function checkAndFixDatabase() {
     
     // Configure WAL mode, busy_timeout and synchronous=NORMAL to prevent lock corruption under concurrent load
     try {
-      await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');
-      await prisma.$queryRawUnsafe('PRAGMA busy_timeout=10000;');
-      await prisma.$queryRawUnsafe('PRAGMA synchronous=NORMAL;');
+      await prisma.$executeRawUnsafe('PRAGMA journal_mode=WAL;');
+      await prisma.$executeRawUnsafe('PRAGMA busy_timeout=10000;');
+      await prisma.$executeRawUnsafe('PRAGMA synchronous=NORMAL;');
       console.log('[DB CHECK] SQLite WAL mode (journal_mode=WAL, busy_timeout=10000, synchronous=NORMAL) configured successfully.');
     } catch (pragmaErr) {
       console.warn('[DB CHECK] Failed to configure SQLite PRAGMAs:', pragmaErr);
+    }
+
+    // Check if the database has tables, or if key tables (such as User) are missing
+    let tables: any[] = [];
+    try {
+      tables = await prisma.$queryRawUnsafe("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'prisma_%'");
+      console.error('[DB CHECK] Current tables in database:', tables.map((t: any) => t.name || t));
+    } catch (tblErr) {
+      console.warn('[DB CHECK] Failed to list sqlite tables, assuming push needed:', tblErr);
+    }
+
+    if (tables.length === 0) {
+      console.log('[DB CHECK] Database has no tables. Running prisma db push to synchronize schema...');
+      try {
+        execSync('npx prisma db push --skip-generate', { stdio: 'inherit' });
+        console.log('[DB CHECK] Database schema synced successfully via DB push.');
+      } catch (pushErr) {
+        console.error('[DB CHECK] Failed to sync schema on table check:', pushErr);
+        throw pushErr;
+      }
     }
   } catch (err: any) {
     const errMsg = err.message || '';
