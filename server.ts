@@ -564,7 +564,7 @@ const authenticateToken = (req: any, res: any, next: any) => {
   if (token == null) return res.sendStatus(401);
 
   jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
-    if (err) return res.sendStatus(403);
+    if (err) return res.sendStatus(401);
     req.user = user;
     next();
   });
@@ -577,7 +577,7 @@ const checkPermission = (areaOrFn: string | ((req: any) => string), requiredLeve
         where: { id: req.user.id }
       });
       
-      if (!user) return res.status(403).json({ error: 'Acesso negado' });
+      if (!user) return res.status(401).json({ error: 'Sessão inválida. Usuário não encontrado.' });
       
       const systemRole = await prisma.systemRole.findUnique({ where: { name: user.role } });
       if (!systemRole) return res.status(403).json({ error: 'Acesso negado' });

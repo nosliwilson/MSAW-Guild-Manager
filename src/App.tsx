@@ -5,7 +5,7 @@
 
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
 import React, { useState, useEffect } from 'react';
-import { Users, Shield, Activity, Swords, Trophy, CalendarX, LogOut, Menu, X, Settings, Gem, History, FileText, Database, UserCog } from 'lucide-react';
+import { Users, Shield, Activity, Swords, Trophy, CalendarX, LogOut, Menu, X, Settings, Gem, History, FileText, Database, UserCog, Loader2 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -125,6 +125,7 @@ function ProtectedRoute({ children, user, setAuth }: { children: React.ReactNode
 
 export default function App() {
   const [user, setUserState] = useState<any>(JSON.parse(localStorage.getItem('user') || 'null'));
+  const [loading, setLoading] = useState<boolean>(!!localStorage.getItem('token'));
 
   const setAuth = (newUser: any | null, token: string | null = null) => {
     setUserState(newUser);
@@ -141,6 +142,11 @@ export default function App() {
 
   useEffect(() => {
     const savedToken = localStorage.getItem('token');
+    if (!savedToken) {
+      setLoading(false);
+      setAuth(null);
+      return;
+    }
     const headers: Record<string, string> = {};
     if (savedToken) {
       headers['Authorization'] = `Bearer ${savedToken}`;
@@ -161,7 +167,8 @@ export default function App() {
           setAuth(null);
         }
       })
-      .catch(() => setAuth(null));
+      .catch(() => setAuth(null))
+      .finally(() => setLoading(false));
   }, []);
 
   const fetchApi = async (url: string, options: RequestInit = {}) => {
@@ -182,12 +189,12 @@ export default function App() {
     // Ensure cross-origin cookies are sent if necessary
     options.credentials = 'include';
     const res = await fetch(url, { ...options, headers });
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401) {
       setAuth(null);
       if (window.location.pathname !== '/login') {
          window.location.href = '/login';
       }
-      throw new Error('Unauthorized');
+      throw new Error('Sessão expirada ou inválida. Faça login novamente.');
     }
     if (!res.ok) {
       const contentType = res.headers.get('content-type');
@@ -208,6 +215,15 @@ export default function App() {
     setAuth(null);
     window.location.href = '/login';
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center text-emerald-400">
+        <Loader2 className="w-10 h-10 animate-spin" />
+        <span className="mt-4 text-sm font-medium text-zinc-400 font-sans">Verificando autenticação...</span>
+      </div>
+    );
+  }
 
   return (
     <Router>
